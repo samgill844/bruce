@@ -1,0 +1,107 @@
+#!/home/sam/anaconda3/bin/python
+import os, sys, numpy as np 
+from astropy.table import Table 
+import glob 
+from astroquery.mast import Catalogs
+import astropy.units as u
+from astropy.coordinates import SkyCoord
+from astroquery.gaia import Gaia
+from astroquery.vo_conesearch import conesearch
+import subprocess
+from astropy.time import Time
+from astropy import units as u
+from astropy.coordinates import SkyCoord, EarthLocation
+
+if __name__=='__main__':
+    print('Querying TIC-{:}'.format(sys.argv[1]))
+    tic_catalog_data = Catalogs.query_object('TIC'+sys.argv[1], radius=.02, catalog="TIC")
+    coord = SkyCoord(ra=tic_catalog_data['ra'][0], dec=tic_catalog_data['dec'][0], unit=(u.degree, u.degree), frame='icrs')
+    print('\tRA : {:}'.format(tic_catalog_data['ra'][0]))
+    print('\tDec : {:}'.format(tic_catalog_data['dec'][0]))
+
+    width = u.Quantity(0.1, u.deg)
+    height = u.Quantity(0.1, u.deg)
+    #result = conesearch.conesearch(coord, 0.1*u.deg, catalog_db = 'The USNO-A2.0 Catalogue (Monet+ 1998) 1').to_table()
+
+    rand_fname = str(str(np.random.normal(100,1)) + '.dat')
+    cmd = str('wcatquery --query=\"using photsummary; display obj_id, RA, declination; cone %s %s 0.01; limit 1;\" > %s' % (tic_catalog_data['ra'][0], tic_catalog_data['dec'][0] , rand_fname))
+    print(cmd)
+    os.system(cmd)
+    try:
+        f = open(rand_fname, 'r')
+        line = f.readline()[:-2]
+        name,ra,dec = line.split('  ')
+        ra = float(ra) 
+        dec = float(dec) 
+        name = ''.join(name.split(' '))
+        print('\nFound SWASP object: ', name)
+        print('\tRA : {:}'.format(ra))
+        print('\tDec : {:}'.format(dec))
+        f.close()
+        os.system('rm {:}'.format(rand_fname))
+    except : 
+        print('Not in SWASP archive')
+        os.system('rm {:}'.format(rand_fname))
+        exit() 
+
+
+    # Quere the LC 
+    cmd = 'wlcextract --object=%s' % name 
+    print('\nExtracting the lightcurve : '+ cmd)
+    os.system(cmd)
+    os.system('mv %s.fits TIC-%s_WASP.fits' % (name, sys.argv[1]))
+
+    # Now load in and convert to HJD, mag and mag_err and detrend with X and Y 
+    print('\ncreating file for TLS')
+    t = Table.read('TIC-%s_WASP.fits' % sys.argv[1])
+    flags = np.array(t['FLAGS'])
+    flux = np.array(t['TAMFLUX2'])
+    cam_id = np.array(t['CAMERA_ID'])
+    mag = 15-2.5*np.log10(flux)
+
+    mag_abs_cut=1
+    mask_no_detrend = ( (flags > 0) & (np.isfinite(flux)) & (flux > 0) & (cam_id < 280)) & ((np.isfinite(mag)) & (np.abs(mag-np.nanmedian(mag)) < mag_abs_cut)) | np.isnan(mag) | np.isinf(mag)
+
+    # now create a dat file suitable for TLS
+    print('\tLoading TIC-%s_WASP.fits' % sys.argv[1])
+    t = Table.read('TIC-%s_WASP.fits' % sys.argv[1])[mask_no_detrend]
+
+
+    HJD = np.array(t['TMID']/86400.0 + 3005.5) + 2450000.
+    flux = np.array(t['TAMFLUX2'])
+    flux_err = np.array(t['TAMFLUX2_ERR'])
+    sigma_xs = t['SIGMA_XS']
+    mag = 15-2.5*np.log10(flux)
+    e_mag = 1.086*np.sqrt(flux_err**2 + (flux*sigma_xs)**2)/flux
+
+    '''
+    print('\t Detrending with CCD positions')
+    A = np.vstack([t['CCDX']]).T
+    linalg_coeffs = np.linalg.lstsq(A, mag)[0] # detrend with mag
+    print(linalg_coeffs)
+    trend = (A*linalg_coeffs).T.sum(axis=0) 
+    mag = mag - trend
+    '''
+
+    # TIME conversion 
+    print('\tConverting HJD -> JD')
+    observatory='Southern African Large Telescope'
+    star_coordinates = SkyCoord(ra, dec, unit="deg", frame='icrs')
+    observation_site = EarthLocation.of_site(observatory)
+
+    xjd_clean_HJD = Time(HJD,format='jd') # now this is in HJD!!!
+    ltt_helio = ltt_helio = xjd_clean_HJD.light_travel_time(star_coordinates, 'heliocentric',location = observation_site)
+    xjd_clean_JD = xjd_clean_HJD - ltt_helio           # HJD --> JD
+
+
+    time = np.array(xjd_clean_JD.jd)
+    sort = sorted(zip(time, mag, e_mag))
+    time = np.array([i[0] for i in sort])
+    mag = np.array([i[1] for i in sort])
+    e_mag = np.array([i[2] for i in sort])
+
+    tmp = np.array([np.array(xjd_clean_JD.jd), mag, e_mag]).T 
+
+    np.savetxt('TIC-%s_WASP.dat' % sys.argv[1], tmp)
+
+#['_r', 'USNO-A2.0', 'RAJ2000', 'DEJ2000', 'ACTflag', 'Mflag', 'Bmag', 'Rmag', 'Epoch'] 

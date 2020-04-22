@@ -1,0 +1,48 @@
+#!/usr/bin/env python
+from tqdm import tqdm
+#from pdtrend import PDTrend
+
+import numpy as np
+import sys
+import glob
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+
+
+import numpy as np
+from tqdm import tqdm
+import sys
+
+import glob
+import matplotlib.pyplot as plt
+from scipy.stats import chisquare, sem
+import matplotlib.cm as cm
+np.warnings.filterwarnings('ignore')
+def lc_bin(time, flux, bin_width):
+        '''
+        Function to bin the data into bins of a given width. time and bin_width 
+        must have the same units
+        '''
+
+        edges = np.arange(np.min(time), np.max(time), bin_width)
+        dig = np.digitize(time, edges)
+        time_binned = (edges[1:] + edges[:-1]) / 2
+        flux_binned = np.array([np.nan if len(flux[dig == i]) == 0 else flux[dig == i].mean() for i in range(1, len(edges))])
+        err_binned = np.array([np.nan if len(flux[dig == i]) == 0 else sem(flux[dig == i]) for i in range(1, len(edges))])
+        time_bin = time_binned[~np.isnan(err_binned)]
+        err_bin = err_binned[~np.isnan(err_binned)]
+        flux_bin = flux_binned[~np.isnan(err_binned)]   
+
+        return time_bin, flux_bin, err_bin
+
+
+if __name__ =="__main__":
+        if (len(sys.argv) < 3) : raise ValueError('use is:\n\tngtsbin [filename] X\n where x is he bin size in minutes.')
+        try:
+                time, mag, mag_err, flux, flux_err = np.loadtxt(sys.argv[1]).T
+        except:
+                time, mag, mag_err = np.loadtxt(sys.argv[1]).T
+
+        time_bin, flux_bin, err_bin = lc_bin(time, mag, int(sys.argv[2])/24./60.)
+        tmp = np.array([time_bin.tolist(), flux_bin.tolist(), err_bin.tolist()]).T
+        np.savetxt('{:}_min_lc.dat'.format(sys.argv[2]), tmp)

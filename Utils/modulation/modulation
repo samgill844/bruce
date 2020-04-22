@@ -1,0 +1,161 @@
+#!/usr/bin/env python
+
+from ivs.timeseries.freqanalyse import iterative_prewhitening, stopcrit_scargle_snr 
+import numpy as np 
+import numba, numba.cuda 
+from bruce.binarystar import lc
+import numpy as np, sys, os, math
+import argparse
+import matplotlib
+#matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+from scipy.stats import  sem
+from scipy.signal import find_peaks
+from scipy.optimize import minimize
+from astropy.table import Table
+
+plt.rcParams.update({'font.size': 8})
+
+# LC bin 
+def lc_bin(time, flux, bin_width):
+	'''
+	Function to bin the data into bins of a given width. time and bin_width 
+	must have the same units
+	'''
+
+	edges = np.arange(np.min(time), np.max(time), bin_width)
+	dig = np.digitize(time, edges)
+	time_binned = (edges[1:] + edges[:-1]) / 2
+	flux_binned = np.array([np.nan if len(flux[dig == i]) == 0 else flux[dig == i].mean() for i in range(1, len(edges))])
+	err_binned = np.array([np.nan if len(flux[dig == i]) == 0 else sem(flux[dig == i]) for i in range(1, len(edges))])
+	time_bin = time_binned[~np.isnan(err_binned)]
+	err_bin = err_binned[~np.isnan(err_binned)]
+	flux_bin = flux_binned[~np.isnan(err_binned)]   
+
+	return time_bin, flux_bin, err_bin
+
+
+
+# Argument parser
+parser = argparse.ArgumentParser('modulation')
+#parser.add_argument('-t', 
+#                help='The transit epoch in arbritraty time units consisting with the input file.', 
+#                dest="t_zero", 
+#                action='store')
+
+parser.add_argument("filename",
+                    help='The filename from which to template search')
+
+parser.add_argument('-a', 
+                    '--pmin',
+                    help='The minimum period to search',
+                    default=2, type=float) 
+
+parser.add_argument('-b', 
+                    '--pmax',
+                    help='The maximum period to search',
+                    default=5, type=float) 
+
+parser.add_argument('-c', 
+                    '--maxiter',
+                    help='The some sensable value, to hard-limit the number of frequencies that will be searched for.',
+                    default=10, type=int) 
+
+parser.add_argument('-d', 
+                    '--saveplace',
+                    help='The place to save files etc.',
+                    default='.', type=str) 
+
+parser.add_argument('-e', 
+                    '--name',
+                    help='The name of the star',
+                    default='Star', type=str) 
+
+parser.add_argument('--saveprewhitenedlc', action="store_true", default=False)
+
+if __name__=="__main__":
+    # First, parse the args
+    args = parser.parse_args()
+
+    # First, load the lightcurve
+    try    :	time, mag, mag_err = np.loadtxt(args.filename).T
+    except :	
+        try : time, mag, mag_err, flux, flux_err = np.loadtxt(args.filename).T
+        except : 
+            time, mag = np.loadtxt(args.filename).T
+            mag_err = np.ones(len(time))*1e-3
+            #finally:	raise IOError('Unable to find or read file: {:}'.format(args.filename))
+
+    # Now sort the lightcurve and ensure f32
+    sort = sorted(zip(time, mag, mag_err))
+    time = np.array([i[0] for i in sort], dtype = np.float64)
+    mag = np.array([i[1] for i in sort], dtype = np.float64)
+    mag_err = np.array([i[2] for i in sort], dtype = np.float64) 
+
+    mag = mag - np.mean(mag)
+    
+    params, e_params = iterative_prewhitening(time, mag, f0=1./args.pmax,fn=1./args.pmin,  maxiter=args.maxiter,          stopcrit=(stopcrit_scargle_snr,4.,6,))
+    names = ['const', 'ampl', 'freq', 'phase']
+
+    if len(params)==0:
+        print('Nothing found.')
+    else:
+        # First, lets dump results 
+        f = open('{:}/{:}_modulation_results.dat'.format(args.saveplace, args.name), "w+")
+        f.write('{:} {:} {:} {:} {:} {:} {:} {:} {:}'.format('peak', 'period', 'e_period', 'ampl', 'e_ampl', 'phase', 'e_phase',  'const', 'e_const'))
+        for i in range(len(params)):
+            f.write('\n{:} {:} {:} {:} {:} {:} {:} {:} {:}'.format(i+1, 1./params[i][2], abs((1./params[i][2]) - 1./(params[i][2] - e_params[i][2])), params[i][1], e_params[i][1], params[i][3], e_params[i][3],  params[i][0], e_params[i][0]))
+        f.close()
+        
+
+        t = Table.read('{:}/{:}_modulation_results.dat'.format(args.saveplace, args.name), format='ascii')
+        # Now plot
+        plt.figure()
+        plt.vlines(t['period'],0,t['ampl'],color='k',linestyle='-')
+        plt.xlabel('Period [d]')
+        plt.ylabel('Amplitude [magnitude]')
+        plt.ylim(0,None)
+        #plt.gca().set_xscale('log')
+        plt.tight_layout()
+        plt.savefig('{:}/{:}_modulation_results.png'.format(args.saveplace, args.name))
+
+
+        f, axs = plt.subplots(figsize=(7,len(t)*3), ncols=1, nrows = len(t))
+        if len(t)==1 : axs = [axs]
+        for i in range(len(t)):
+            period = t['period'][i] 
+            phase = (time / period) - np.floor(time / period)
+            sort = sorted(zip(phase, mag))
+            phase = np.array([i[0] for i in sort])
+            mag_ = np.array([i[1] for i in sort])
+            phase = np.concatenate((phase-1, phase))
+            mag_ = np.concatenate((mag_ , mag_))
+            axs[i].scatter(phase,mag_, c='k', s=10, alpha = 0.01)
+
+            # now bin
+            phase, mag_, err = lc_bin(phase,mag_, 1/100)
+            axs[i].scatter(phase,mag_, c='r', s=10)
+
+            # now plot the model
+            p_model = np.linspace(-1,1,10000)
+            model = t['const'][i] + t['ampl'][i]*np.sin(p_model*2*np.pi + t['phase'][i]*2*np.pi)
+            axs[i].plot(p_model, model, 'b')
+            axs[i].set_ylim(-1.5*t['ampl'][i], 1.5*t['ampl'][i])
+            axs[i].set_xlim(-1,1)
+            axs[i].set_title('P = {:.6f} d'.format(period), fontdict={'fontsize': 8})
+            axs[i].set_ylabel('Amplitude [magnitude]')
+            axs[i].invert_yaxis() 
+            
+            model = t['const'][i] + t['ampl'][i]*np.sin(time*2*np.pi/t['period'][i] + t['phase'][i]*2*np.pi)
+            mag = mag - model
+
+        axs[-1].set_xlabel('Phase')
+        plt.tight_layout()
+        plt.savefig('{:}/{:}_modulation_results_phased.png'.format(args.saveplace, args.name))
+        plt.close()
+
+        # Now save pre whitened data 
+        if args.saveprewhitenedlc:
+            tmp = np.array([time.tolist(), mag.tolist(), mag_err.tolist()]).T 
+            np.savetxt('{:}/{:}_prewhitened.dat'.format(args.saveplace, args.name), tmp)

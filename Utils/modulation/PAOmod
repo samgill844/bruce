@@ -1,0 +1,28 @@
+#!/usr/bin/env python
+
+
+import os, glob 
+
+modulation = "/home/u1870241/anaconda3/bin/modulation"
+tls_dir = "/ngts/scratch/monotransits/tls_files"
+saveplace = "/ngts/scratch/monotransits/modulation"
+
+
+if __name__=="__main__":
+    files = glob.glob('{:}/NG*.dat'.format(tls_dir))
+    for i in files:
+        #print(j.split('/')[1].split('.')[0])
+        name = i.split('/')[-1].split('.')[0]
+        # Make the call to tls 
+        call = '{:} {:} --pmin 0.5 --pmax 50 --name {:} --saveplace {:}'.format(modulation, i, name, saveplace)
+        #call = 'tls {:} --period {:} --radius_1 {:} --k {:} --b {:}'.format(j, monos[i][3], monos[i][4], monos[i][5], monos[i][6])
+        f = open('Job.sh', 'w+')
+        f.write('#$ -N modulation_{:}\n\n'.format(name))
+        f.write(call)
+        # now write the jobPAOtls
+        f.close()
+
+        os.system('qsub Job.sh > tmp.txt')
+        os.system('rm Job.sh')
+        os.system('rm tmp.txt')
+        

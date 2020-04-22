@@ -1,0 +1,59 @@
+#!/home/sam/anaconda3/bin/python
+
+import os,sys , glob , numpy as np 
+from astropy.table import Table 
+
+# Path to tls 
+path_to_tls = '/home/sam/anaconda3/bin/tls'
+
+# Data for each system
+'''
+TIC-32488117
+------------------
+@ period = 10
+         t_zero = 1399.51320 + 0.01095 - 0.00008
+       radius_1 = 0.04793 + 0.00045 - 0.01267
+              k = 0.13347 + 0.00062 - 0.03873
+              b = 0.86366 + 0.00313 - 0.76325
+             zp = 0.00005 + 0.00002 - 0.00014
+'''
+#            Name,         FIELD,          t_zero,   period, radius_1, k, b
+monos = [['TIC-32488117', 'NG0018-1213', 1399.51320, 10., 0.04793, 0.13347, 0.86366],
+         ['TIC-67599025', 'NG0110-3131', 1404.02198, 10., 0.03585, 0.07562, 0.21549],
+         ['TIC-54002556', 'NG0134-1426', 1390.70471, 10., 0.06703, 0.09689, 0.79114],
+         ['TIC-231005575','NG0140-5432', 1397.77683, 10., 0.06576, 0.13675, 0.23104],
+         ['NOI-105372',   'NG1451-3115', 782.81531,  166.78794, 0.00261, 0.19260, 0.78239], #2457782.81531,
+         ['TIC-159730525', 'NG2115-3910', 1333.67348, 10., 0.14423, 0.09649, 0.15163],
+         ['TIC-159730525', 'NG2114-3919', 1333.67348, 10., 0.14423, 0.09649, 0.15163],
+         ['TIC-231694759',  'NG2133-5816', 1333.75826, 10., 0.54180, 0.06769, 0.02598 ], # <-------- FAILED APERTURES, re-run ASAP
+         ['TIC-219332978', 'NG2234-5735', 1346.57769, 10., 0.14446, 0.07179, 0.65784],
+         ['TIC-238855958', 'NG2251-6731', 1337.72694, 10., 0.08922, 0.07803, 0.33929],
+         ['TIC-188598890', 'NG2303-1526', 1378.03987, 10., 0.22027, 0.10299, 0.55411],
+         ['TIC-2760710',  'NG2346-1641', 1364.1021, 15.60350, 0.01279426816,  0.1677, 0.02 ],
+         ['TIC-280801638', 'NG2358-6400', 1331.92063, 10., 0.11788, 0.13051, 0.67283 ],
+        ]                                             # <- In 2 minute but not sure if its too shallow etc.
+
+
+
+
+
+
+if __name__ == '__main__':
+    # First, create the TLS directory 
+    try : os.system('rm -rf tls')
+    except : pass 
+
+    files_to_do = glob.glob('../NG*.dat')
+    print(files_to_do)
+
+    for i in range(len(monos)):
+        for j in files_to_do:
+            if monos[i][1] in j:
+                print(j)
+
+                # Make the call to tls 
+                call = 'tls {:} --period {:} --radius_1 {:} --k {:} --b {:}'.format(j, monos[i][3], monos[i][4], monos[i][5], monos[i][6])
+                #print(call)
+                os.system(call)
+
+

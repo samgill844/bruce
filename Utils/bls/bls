@@ -1,0 +1,467 @@
+#!/home/sam/anaconda3/bin/python
+
+
+
+from bruce.binarystar.lc import lc, _lc
+import emcee, corner, sys, os, numpy as np, math
+import matplotlib.pyplot as plt; plt.rcParams["figure.dpi"] = 150
+import astropy
+import numpy, numpy as np
+from astropy.io import fits
+from astropy.stats import sigma_clip
+from astropy.timeseries import BoxLeastSquares
+from astropy.timeseries import LombScargle
+import astropy.units as u
+from matplotlib.ticker import MultipleLocator
+from multiprocessing import Pool 
+from tqdm import tqdm
+from astropy.table import Table 
+import argparse
+import time as time_func
+from lightkurve.lightcurve import TessLightCurve
+import matplotlib
+#matplotlib.use('Agg')
+import flock
+
+
+def box_model(time, t_zero, depth, width):
+    model = np.zeros(time.shape[0])
+    model[(time > (t_zero - width)) & (time < (t_zero + width))] = depth 
+    return model
+
+# Argument parser
+parser = argparse.ArgumentParser('BLS')
+#parser.add_argument('-t', 
+#                help='The transit epoch in arbritraty time units consisting with the input file.', 
+#                dest="t_zero", 
+#                action='store')
+
+parser.add_argument("filename",
+                    help='The filename from which to template search')
+
+
+parser.add_argument('-a', 
+                    '--saveplace',
+                    help='Tha save path directory',
+                    default='.',  type=str) 
+
+parser.add_argument('-b', 
+                    '--name',
+                    help='The name of the star',
+                    default='Star',  type=str) 
+
+parser.add_argument('-c', 
+                    '--threads',
+                    help='The number of threads',
+                    default=1,  type=int) 
+
+parser.add_argument('-d', 
+                    '--sde',
+                    help='The SDE  cut',
+                    default=15,  type=int) 
+
+parser.add_argument('-e', 
+                    '--R1',
+                    help='The radius of the primary',
+                    default=-99,  type=float)
+
+parser.add_argument('-f', 
+                    '--write_to_file',
+                    help='The output file',
+                    default='no',  type=str)                
+
+parser.add_argument('-g', 
+                    '--lock_file',
+                    help='The lock file',
+                    default='.lockfile',  type=str)    
+
+
+parser.add_argument('-i', 
+                '--mask',
+                help='The mask',
+                default='no', type=str)
+
+parser.add_argument('-j', 
+                '--fitsapp',
+                help='The fits aperture',
+                default=2, type=int)
+
+parser.add_argument('-k', 
+                '--flatten_kernel',
+                help='The kernel to flatten to',
+                default=91, type=int)
+
+parser.add_argument('-l', 
+                '--ra',
+                help='The target ra',
+                default=-99, type=float)
+
+parser.add_argument('-m', 
+                '--dec',
+                help='The target dec',
+                default=-99, type=float)
+
+parser.add_argument('-n', 
+                '--mag',
+                help='The target Mag',
+                default=-99, type=float)
+
+parser.add_argument('-o', 
+                '--JH',
+                help='The J-H color for getting R1',
+                default=-99, type=float)
+
+parser.add_argument('-p', 
+                '--JHfile',
+                help='The J-H file for linking J-H to R1',
+                default='no', type=str)
+  
+
+parser.add_argument('--fits', action="store_true", default=False)
+parser.add_argument('--fit', action="store_true", default=False)
+parser.add_argument('--flatten', action="store_true", default=False)
+
+
+def transit_chi(theta, t_zero_ref, period_ref):
+    # theta = t_zero period radius_1 k b zp
+    # First check bounds,
+    if (theta[0] < (t_zero_ref-0.2)) or (theta[0] > (t_zero_ref+0.2)) : return -np.inf
+    if (theta[1] < (period_ref -0.002)) or (theta[1] > (period_ref+0.002)) : return -np.inf
+    if (theta[2] < 0) or (theta[2] > 0.8) : return -np.inf
+    if (theta[3] < 0) or (theta[3] > 0.8) : return -np.inf
+    if (theta[4] < 0) or (theta[4] > 1) : return -np.inf
+    if (theta[5] < -0.2) or (theta[5] > 0.2) : return -np.inf
+
+    # calculate inclination
+    incl = 180*np.arccos(theta[2]*theta[4])/np.pi # in deg
+    return lc(time, mag, mag_err, J=0, zp = theta[5], t_zero = theta[0], period=theta[1], radius_1 = theta[2], k = theta[3], incl=incl )
+
+
+
+def transit_width(r, k, b, P=1, arr=False):
+    """
+    Total transit duration.
+    See equation (3) from Seager and Malen-Ornelas, 2003ApJ...585.1038S.
+    :param r: R_star/a
+    :param k: R_planet/R_star
+    :param b: impact parameter = a.cos(i)/R_star
+    :param P: orbital period (optional, default P=1)
+    :returns: Total transit duration in the same units as P.
+    """
+    width = P*np.arcsin(r*np.sqrt( ((1+k)**2-b**2) / (1-b**2*r**2) ))/np.pi
+    if arr : width[np.isnan(width) | np.isinf(width)] = 0.05
+    else : 
+        if np.isnan(width) or np.isinf(width) : width = 0.05
+    return width
+
+
+if __name__=="__main__":
+    # First, parse the args
+    args = parser.parse_args()
+
+    # First, sort out R1
+    JH_flag = False
+    if (args.R1==-99.) and (args.JHfile!='no') and (args.JH!=-99.0):
+        print('Re-interpolating the radius from JH colors')
+
+        # Load the table
+        t = Table.read(args.JHfile, format='csv')
+
+        # mask out bad values
+        mask = (np.array(t['J-H'])=='.....') | (np.array(t['J-H'])=='...') | (np.array(t['R_Rsun'])=='...')
+
+        # Now re interpolate
+        sort = sorted(zip(np.array(t['J-H'])[~mask].tolist(), t['R_Rsun'][~mask].tolist() ))
+        t['J-H'][~mask] = np.array([i[0] for i in sort])
+        t['R_Rsun'][~mask] = np.array([i[1] for i in sort])
+
+        args.R1 = np.interp(args.JH,    np.array(t['J-H'])[~mask].astype(np.float),    np.array(t['R_Rsun'])[~mask].astype(np.float), left = -99., right = -99. )
+
+        print('J-H = {:.3f} -> R1 = {:.2f}'.format(args.JH ,args.R1))
+        if (args.R1 != -99.) :  JH_flag = True
+
+    if args.fits : 
+        t = Table.read(args.filename)
+        mask = t['DQUALITY'] == 0
+        time = np.array(t['BJD'], dtype = np.float64)
+        flux = t['AP{:}'.format(args.fitsapp)] - t['SKY{:}'.format(args.fitsapp)]
+        mask = mask | np.isnan(-2.5*np.log10(flux)) | np.isinf(-2.5*np.log10(flux))
+
+
+        t = Table.read(args.filename)[mask]
+        time = np.array(t['BJD'], dtype = np.float64)
+        flux = t['AP{:}'.format(args.fitsapp)] - t['SKY{:}'.format(args.fitsapp)]
+        mag = np.array(-2.5*np.log10(flux), dtype = np.float64)
+        mag_err = 1e-3*np.ones(len(flux), dtype = np.float64)
+
+    else : 
+        # First, load the lightcurve
+        try    :	time, mag, mag_err = np.loadtxt(args.filename).T
+        except :	
+            try : time, mag, mag_err, flux, flux_err = np.loadtxt(args.filename).T
+            except : 
+                time, mag = np.loadtxt(args.filename).T
+                mag_err = np.ones(len(time))*1e-3
+
+
+    mag_old = np.copy(mag) - np.median(mag) - 0.03
+
+    if args.mask != 'no':
+        t = Table.read(args.mask)
+        mask = np.zeros(len(time), dtype = np.bool)
+        for i in range(len(t)):
+            for j in range(len(time)):
+                if abs(t['BJD'][i] - time[j]) < (0.25/24) : mask[j] = True 
+        time = time[~mask]
+        mag = mag[~mask]
+        mag_err = mag_err[~mask]
+        flux = flux[~mask]
+        mag_old = mag_old[~mask]
+
+
+    sort = sorted(zip(time,mag, mag_err))
+    time = np.array([i[0] for i in sort], dtype=np.float64)
+    mag = np.array([i[1] for i in sort], dtype=np.float64)
+    mag_err = np.array([i[2] for i in sort], dtype=np.float64)
+    mask = np.isnan(mag) | np.isinf(mag)
+    mag = mag - np.median(np.clip(mag[~mask], np.percentile(mag[~mask], 5), np.percentile(mag[~mask], 90) ))
+
+    flux = 10**(-0.4*mag)
+
+
+
+    def floating_median(x,y, boxsize):
+        idx = x.argsort()
+        newy = np.zeros(len(y))
+        for i in range(len(y)):
+            j = idx[i]
+            newy[j] = np.nanmedian(y[idx[max(0,i-boxsize):min(len(y),i+boxsize)]])
+        return(newy)
+
+    if args.flatten:
+        mag_medfilt = np.copy(mag)
+        #s = TessLightCurve(time, flux)
+        #s = s.flatten()
+        #flux = s.flux 
+        #mag = -2.5*np.log10(flux)
+        #flux_medfilt = medfilt(flux, args.flatten_kernel)
+
+        # Find splits where at least 5 points are missing 
+        cadence = 1/24
+        splits = [] 
+        for i in range(len(time)-1):
+            if (time[i] - time[i-1]) > (5*cadence) : splits.append(i)
+        nsegs = len(splits) + 1
+        binned_idxs = np.array([])
+        for i in range(nsegs):
+            if nsegs == 1:
+                idx = np.arange(0, len(time))
+            else:
+                if i==0 : idx = np.arange(0, splits[0])
+                elif (i==(nsegs-1)) : idx = np.arange(splits[-1], len(time))
+                else : idx = np.arange(splits[i-1], splits[i])
+
+            flux_medfilt = floating_median(np.arange(idx.shape[0]),flux[idx], args.flatten_kernel)
+            flux_medfilt[:20] = flux[idx][:20]
+            flux_medfilt[-20:] = flux[idx][-20:]
+            flux[idx] = flux[idx] / flux_medfilt
+            mag_medfilt[idx] = -2.5*np.log10(flux_medfilt) - np.median(mag) - 0.03
+            binned_idxs = np.concatenate((binned_idxs,idx[:20] ))
+            binned_idxs = np.concatenate((binned_idxs,idx[-20:] ))
+        binned_idxs = binned_idxs.astype(int) # avoid future depretiation
+
+        # now clean up
+        flux = np.delete(flux, binned_idxs)
+        time = np.delete(time, binned_idxs)
+        mag_medfilt = np.delete(mag_medfilt, binned_idxs)
+        mag_err = np.delete(mag_err, binned_idxs)
+        mag_old = np.delete(mag_old, binned_idxs)
+
+
+        # Conver to mag 
+        mag = -2.5*np.log10(flux)
+
+
+
+
+    results_BLS = BoxLeastSquares(time * u.day, flux, dy=0.01).autopower(0.2, oversample=10)
+    results_lomb_freq, results_lomb_power = LombScargle(time, flux).autopower()
+    results_lomb_period = 1.0/results_lomb_freq
+
+    if np.max(results_BLS.power) < args.sde : 
+        print('No significant peak found')
+        plt.scatter(time, mag)
+        plt.show()
+        exit()
+        
+    f, (ax0, ax1, ax2) = plt.subplots(nrows=3, ncols=1,figsize = (10,12))
+    title_text = '{:}\nra : {:.4f} dec {:.4f}\nT = {:.3f}\nPeriod = {:.6f} d\nR1 = {:.3f}'.format(args.name, args.ra, args.dec, args.mag, results_BLS.period[np.argmax(results_BLS.power)], args.R1)
+    if JH_flag : title_text += ' (J-H)'
+    ax0.set_title(title_text)
+    ax0.axvline(results_BLS.period[np.argmax(results_BLS.power)].value, alpha=0.4, lw=3)
+    ax0.set_xlim(results_BLS.period[0].value, results_BLS.period[-1].value)
+    for n in range(2, 10):
+        ax0.axvline(n*results_BLS.period[np.argmax(results_BLS.power)].value, alpha=0.4, lw=1, linestyle="dashed")
+        ax0.axvline(results_BLS.period[np.argmax(results_BLS.power)].value / n, alpha=0.4, lw=1, linestyle="dashed")
+    ax0.set_ylabel(r'Power')
+    ax0.set_xlabel('Period (days)')
+    ax0.plot(results_BLS.period, results_BLS.power, color='black', lw=0.5, alpha = 0.7)
+    ax0_ = ax0.twinx()
+    ax0_.plot(results_lomb_period, results_lomb_power, color='blue', lw=0.5, alpha = 0.7)
+    ax0_.yaxis.set_major_locator(plt.NullLocator())
+    #plt.setp( ax0_.get_yticklabels(), visible=False)
+    ax0.xaxis.set_minor_locator(MultipleLocator(0.2))
+
+    phase = (time - results_BLS.transit_time[np.argmax(results_BLS.power)].value) / results_BLS.period[np.argmax(results_BLS.power)].value %1
+    box_depth = results_BLS.depth[np.argmax(results_BLS.power)]
+    box_duration = results_BLS.duration[np.argmax(results_BLS.power)].value / results_BLS.period[np.argmax(results_BLS.power)].value 
+    mask = (phase < box_duration) | (phase > (1 - box_duration))
+    ax1.scatter(time, flux, color='k', alpha=0.5, s=2, zorder=0)
+    ax1.scatter(time[mask], flux[mask], color='r', alpha=0.5, s=2, zorder=0)
+    ax1.set_ylabel('Relative flux')
+    ax1.set_xlabel('BJD')
+
+    if args.flatten : 
+        ax22 = ax1.twinx()
+        ax22.scatter(time, mag_medfilt, c='y', s = 5, alpha = 0.8)
+        ax22.scatter(time, mag_old , c='k', s=5, alpha = 0.1)
+
+    ax2.scatter(phase, flux, color='k', alpha=0.5, s=2, zorder=0)
+    ax2.scatter(phase-1, flux, color='k', alpha=0.5, s=2, zorder=0)
+    ax2.set_xlabel('Phase')
+    ax2.set_ylabel('Relative flux')
+
+    phase = np.linspace(-0.5,0.5, 20000)
+    box_center = 0. #results_BLS.transit_time[np.argmax(results_BLS.power)].value
+
+    box = box_model(phase, box_center, -box_depth, box_duration) + 1.
+    ax2.plot(phase, box, 'b')
+    ax2.set_xlim(-4*box_duration,4*box_duration)
+
+    k = np.sqrt(-2.5*np.log10(1-box_depth))
+    if args.R1 != -1:
+        R2 = args.R1*k
+        if R2 < 0.15 : ax2.set_facecolor('xkcd:turquoise')
+        if (R2 >= 0.15) and (R2 < 0.6) : ax2.set_facecolor('xkcd:gold')
+        if R2 >= 0.6 : ax2.set_facecolor('xkcd:salmon')
+
+    
+    if args.fit:
+        '''
+        # use ngtsfit
+        tmp = np.array([time, mag, np.ones(len(time))*1e-3]).T 
+        filename = '{:}_bls_ngtsfit.dat'.format(args.name)
+        np.savetxt(filename, tmp)
+
+        # make the call
+        ngtsfit = '/home/sam/anaconda3/bin/ngtsfit'
+        os.system('{:} {:} --t_zero {:} --period {:} --emcee --emcee_steps 30000 --emcee_burn_in 20000 --gp --fitpars t_zero period radius_1 k b zp log_amp log_timescale log_sigma --R1 {:} --name {:} --b 0.5 --savepath {:}'.format(ngtsfit, filename,
+                                                    results_BLS.transit_time[np.argmax(results_BLS.power)].value, results_BLS.period[np.argmax(results_BLS.power)].value,
+                                                    args.R1, '{:}_bls_ngtsfit'.format(args.name),
+                                                    args.save_path))
+
+        # Clean up 
+        os.system('rm {:}'.format(filename))
+        '''
+
+        theta = [results_BLS.transit_time[np.argmax(results_BLS.power)].value, results_BLS.period[np.argmax(results_BLS.power)].value, 0.2,0.2,0.2, 0.]
+        ndim = len(theta)
+        nwalkers = 4*ndim
+        p0 = theta + 1e-8 * np.random.randn(nwalkers, ndim)
+        
+        if args.threads > 1 : pool = Pool(args.threads)
+        else : pool = None
+
+        # Make the sampler
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, transit_chi, pool=pool, args=(results_BLS.transit_time[np.argmax(results_BLS.power)].value, results_BLS.period[np.argmax(results_BLS.power)].value))
+
+        nsteps = 2000
+        sampler.run_mcmc(p0, nsteps, progress=True)
+
+        samples = sampler.get_chain(flat=True, discard=1500)
+        logs = sampler.get_log_prob(flat=True, discard=1500) 
+        best_idx = np.argmax(logs)
+        best_step = samples[best_idx]
+
+        #f = corner.corner(samples)
+        phase_ = np.linspace(-0.5,0.5,10000)
+        incl = 180*np.arccos(best_step[2]*best_step[4])/np.pi
+
+        # Re plot since we've fit a better model
+        ax2.cla()
+        phase = (time - best_step[0]) / best_step[1]%1
+        ax2.scatter(phase, flux, color='k', alpha=0.5, s=2, zorder=0)
+        ax2.scatter(phase-1, flux, color='k', alpha=0.5, s=2, zorder=0)
+        ax2.set_xlabel('Phase')
+        ax2.set_ylabel('Relative flux')
+        ax2.plot(phase_, lc(phase_, radius_1 = best_step[2], k = best_step[3], incl=incl), 'r')
+
+        width = transit_width(best_step[2], best_step[3], best_step[4], P=best_step[1])
+        phase_width = transit_width(best_step[2], best_step[3], best_step[4], P=1.)
+
+        text = 'T0 : {:.5f}\nP [d] : {:.5f}\nR1/a : {:.2f}\nR2/R1 : {:.3f}\nb : {:.2f}'.format(*best_step)
+        text += '\nwidth [hr] : {:.2f}'.format(width*24)
+        if args.R1 != -1:
+            R2 = args.R1*best_step[3]
+            if R2 < 0.15 : ax2.set_facecolor('xkcd:turquoise')
+            if (R2 >= 0.15) and (R2 < 0.6) : ax2.set_facecolor('xkcd:gold')
+            if R2 >= 0.6 : ax2.set_facecolor('xkcd:salmon')
+            text += '\nR1 [Rsun]: {:.2f}'.format(args.R1)
+            text += '\nR2 [Rsun]: {:.2f}'.format(R2)
+            text += '\n   [Rjup]: {:.2f}'.format(R2*9.7311)
+
+        ax2.text(phase_width, np.min(lc(phase_, radius_1 = best_step[2], k = best_step[3], incl=incl)), text, fontsize=5)
+
+    plt.tight_layout()
+    plt.savefig('{:}/{:}_BLS.png'.format(args.saveplace, args.name))
+    plt.close()
+
+
+
+    if args.write_to_file != 'no':
+        # Now save results to text file
+        lock_file = '{:}/{:}'.format(args.saveplace, args.lock_file)
+        savefile = '{:}/{:}'.format(args.saveplace, args.write_to_file)
+
+        with open(lock_file, 'w') as ff:
+            blocking_lock   = flock.Flock(ff, flock.LOCK_EX)
+            with blocking_lock:
+                # First, peripherals
+                write_str = '{:},{:},{:},{:},{:},{:},'.format(args.name, args.ra, args.dec, args.mag, args.R1, JH_flag) # name
+
+                # Next, the SDE 
+                write_str += '{:},'.format(np.max(results_BLS.power)) # SDE
+
+                # Next, the box ,    t_zero, period, duration, depth
+                write_str += '{:},{:},{:},{:},'.format(results_BLS.transit_time[np.argmax(results_BLS.power)].value,       results_BLS.period[np.argmax(results_BLS.power)].value,           results_BLS.duration[np.argmax(results_BLS.power)].value,    box_depth ) # t_zero, period, duration, depth
+
+                # Next, box R2
+                if args.R1!=-99 : write_str += '{:},'.format( args.R1* np.sqrt(-2.5*np.log10(1-box_depth)) )
+                else:  write_str += '-99,'
+
+                # Next write fitted pars, t_zero period, radius_1 k b zp
+                if args.fit : write_str += '{:},{:},{:},{:},{:},{:},'.format(*best_step)
+                else                : write_str += '-99,-99,-99,-99,-99,-99,' 
+
+                # Next, werite fits width
+                if args.fit : write_str += '{:},'.format(width)
+                else                : write_str += '-99,' 
+
+
+                # Finally, fit R2
+                if (args.R1 != -1) and  args.fit: write_str += '{:}'.format( args.R1* best_step[3] )
+                else:  write_str += '-99'
+                #print('R2 : {:}'.format( args.R1* best_step[3] ))
+
+
+                # add a new line
+                write_str += '\n'
+
+                if not os.path.isfile(savefile):
+                    f = open(savefile, 'a+')
+                    f.write('NAME,RA,DEC,MAG,R1,JH_FLAG,SDE,BOX_T_ZERO,BOX_PERIOD,BOX_DURATION,BOX_DEPTH,BOX_R2,FIT_T_ZERO,FIT_PERIOD,FIT_RADIUS_1,FIT_K,FIT_B,FIT_ZP,FIT_WIDTH,FIT_R2\n')
+                    f.close()
+
+                f = open(savefile, 'a+')
+                f.write(write_str)
+                f.close()

@@ -1,0 +1,151 @@
+#!/home/sam/anaconda3/bin/python
+
+import os,sys , glob , numpy as np 
+from astropy.table import Table 
+from multiprocessing import Pool 
+
+
+from contextlib import contextmanager
+from collections import defaultdict
+import pymysql
+
+
+@contextmanager
+def open_db(host='ngtsdb', db='ngts_archive', user='u1870241', cur_class='list'):
+    """
+    Reusable database connection manager
+    """
+    if cur_class == 'list':
+        with pymysql.connect(host=host,
+                             db=db,
+                             user=user) as cur:
+            yield cur
+    else:
+        with pymysql.connect(host=host,
+                             db=db,
+                             user=user,
+                             cursorclass=pymysql.cursors.DictCursor) as cur:
+            yield cur  
+
+
+def subit_row(row):
+    qry = 'INSERT INTO working_group_target_summary VALUES (' 
+
+    print(len(row), row)
+    qry += '"{:}" , {:} , "{:}" , {:} , "{:}", {:}, {:}'.format(*row)
+    qry += ');'
+    print(qry)
+
+    with open_db(cur_class='list', db='ngts_archive', user='u1870241') as cur : 
+        cur.execute(qry)  
+
+
+def create_and_submit_rows():
+    for i in monos:
+        field = i[1][:-2] # NGXXXX-YY
+        files = glob.glob('../{:}*.dat'.format(field))
+        files = [j.split('/')[1].split('.')[0] for j in files]
+        files = [j.split('_') for j in files]
+
+        for j in files:
+            row = [i[0], i[0].split('-')[1], j[0], j[1], 'monotransits', '0','CURRENT_TIMESTAMP' ]
+            subit_row(row)
+
+#+-------------+-------------+------+-----+-------------------+-----------------------------+
+#| Field       | Type        | Null | Key | Default           | Extra                       |
+#+-------------+-------------+------+-----+-------------------+-----------------------------+
+#| alias       | varchar(40) | NO   |     | NULL              |                             |
+#| tic_id      | bigint(20)  | NO   | PRI | NULL              |                             |
+#| field       | varchar(11) | NO   | PRI | NULL              |                             |
+#| camera_id   | int(3)      | NO   | PRI | NULL              |                             |
+#| project     | varchar(40) | NO   |     | NULL              |                             |
+#| status      | int(3)      | NO   |     | 0                 |                             |
+#| last_update | timestamp   | NO   |     | CURRENT_TIMESTAMP | on update CURRENT_TIMESTAMP |
+#+-------------+-------------+------+-----+-------------------+-----------------------------+
+
+
+
+
+# Path to tls 
+path_to_tls = '/home/sam/anaconda3/bin/tls'
+
+# Data for each system
+'''
+TIC-32488117
+------------------
+@ period = 10
+         t_zero = 1399.51320 + 0.01095 - 0.00008
+       radius_1 = 0.04793 + 0.00045 - 0.01267
+              k = 0.13347 + 0.00062 - 0.03873
+              b = 0.86366 + 0.00313 - 0.76325
+             zp = 0.00005 + 0.00002 - 0.00014
+'''
+#            Name,         FIELD,          t_zero,   period, radius_1, k, b, camera
+monos = [['TIC-32488117', 'NG0018-1213', 1399.51320, 10., 0.04793, 0.13347, 0.86366, [806]],
+         ['TIC-67599025', 'NG0110-3131', 1404.02198, 10., 0.03585, 0.07562, 0.21549, [804]],
+         #['TIC-54002556', 'NG0134-1426', 1390.70471, 10., 0.06703, 0.09689, 0.79114, [813]],
+         #['TIC-231005575','NG0140-5432', 1397.77683, 10., 0.06576, 0.13675, 0.23104, [806,811]],
+         #['NOI-105372',   'NG1451-3115', 782.81531,  166.78794, 0.00261, 0.19260, 0.78239, [813]], #2457782.81531,
+         #['TIC-159730525', 'NG2115-3910', 1333.67348, 10., 0.14423, 0.09649, 0.15163, [803,806]],
+         #['TIC-159730525', 'NG2114-3919', 1333.67348, 10., 0.14423, 0.09649, 0.15163, [803,806]],
+         ['TIC-231694759',  'NG2133-5816', 1333.75826, 10., 0.54180, 0.06769, 0.02598 , [808]], # <-------- FAILED APERTURES, re-run ASAP
+         #['TIC-219332978', 'NG2234-5735', 1346.57769, 10., 0.14446, 0.07179, 0.65784, [807]],
+         #['TIC-238855958', 'NG2251-6731', 1337.72694, 10., 0.08922, 0.07803, 0.33929, [806]],
+         ['TIC-188598890', 'NG2303-1526', 1378.03987, 10., 0.22027, 0.10299, 0.55411, [812]],
+         ['TIC-2760710',  'NG2346-1641', 1364.1021, 15.60350, 0.01279426816,  0.1677, 0.02 , [809]],
+         ['TIC-280801638', 'NG2358-6400', 1331.92063, 10., 0.11788, 0.13051, 0.67283 , [803]],
+         ['TIC-201292545', 'NG0011-5643', 1326.64282, 10., 0.13350, 0.11296, 0.92731 , [807]],  # THIS is an EBLM!!!!
+         ['TIC-259592689', 'NG0451-5351',  2458439.64650, 100., 0.01485, 0.07870, 0.60961, [811]], # TOI-429
+         ['TIC-219345200', 'NG0459-4945', 2458434.91257, 100., 0.01483, 0.44681, 1.36281, [810]], # TOI-706 (looks like an EB but has 2-min data which it appears to be flat bottomed)
+         #['TIC-25227021', 'NG2147-1957', 2458332.74649, 30., 0.04558, 0.08329, 0.06104, [802]],
+         ['TIC-422914082', 'NG0233+0138', 2458431.55493, 10., 0.10351, 0.05134, 0.84418, [802] ], # NEW, R2 = 0.04445977258
+         #['TIC-283770918', 'NG0858+0557', 2458526.54196, 10., 0.06931, 0.23462, 1.11054, [807]], # NEW, R2 = 0.18 -> most likely EBLM
+         ['TIC-192790476', 'NG0528-3918', 2458452.33822, 10., 0.07208, 0.05951, 0.87566, [813]], #NEW, R2 = 0.04 -> very nice, but ropy detection,
+         ['TIC-139198430', 'NG2302-4601', 2458333.09277, 10., 0.04915, 0.26819, 1.15769, [813]], #NEW R2 = 0.32 -. most likely EB?
+        ['TIC-96659610', 'NG0658-3111', 2458452.33822, 30, 0.0266, 0.0622, 0.46, [804]],           # NEW
+        ['TIC-124414736', 'NG0657-1146', 2458452.33822, 30, 0.0311, 0.0427, 0.23, [806]],
+        ['TIC-170206220', 'NG0648-4643', 2458452.33822, 30, 0.0360, 0.0725, 0.87, [807]]]
+monos = [['TIC-139198430', 'NG2302-4601', 2458333.09277, 10., 0.04915, 0.26819, 1.15769, [813]]]
+
+#NG0428-6341	(TIC-38760164	) missing ? 
+#NG0709	(TIC-157698565	) missing ? 
+
+
+
+
+
+def func(i):
+    os.system(cmd[i])
+
+
+#tls_dir = "/ngts/scratch/monotransits/tls_files"
+#saveplace = "/ngts/scratch/monotransits/tls_files/results"
+
+if __name__ == '__main__':
+    # First, create the TLS directory 
+    try : os.system('rm -rf tls')
+    except : pass 
+    tls_dir = sys.argv[1]
+    saveplace = sys.argv[2]
+
+    files_to_do = glob.glob('{:}/NG*.dat'.format(tls_dir))
+
+    cmd = []
+    for i in range(len(monos)):
+        for j in files_to_do:
+            if monos[i][1] in j:
+                #print(j.split('/')[1].split('.')[0])
+                name = j.split('/')[-1].split('.')[0]
+                # Make the call to tls 
+                call = '{:} {:} --period {:} --radius_1 {:} --k {:} --b {:} --name {:} --save_path {:}'.format(path_to_tls, j, monos[i][3], monos[i][4], monos[i][5], monos[i][6], name, saveplace)
+                #call = 'tls {:} --period {:} --radius_1 {:} --k {:} --b {:}'.format(j, monos[i][3], monos[i][4], monos[i][5], monos[i][6])
+                #f = open('Job.sh', 'w+')
+                #f.write('#$ -N tls_{:}\n\n'.format(name))
+                #f.write(call)
+                # now write the jobPAOtls
+                #f.close()
+
+                #os.system('qsub Job.sh > tmp.txt')
+                #os.system('rm Job.sh')
+                #os.system('rm tmp.txt')
+                os.system('tsp {:}'.format(call))

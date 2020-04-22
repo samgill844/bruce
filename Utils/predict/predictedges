@@ -1,0 +1,103 @@
+#!/usr/bin/env python
+import os,sys 
+import argparse 
+
+description = '''Transit prediciton for the ingress and egress event'''
+
+# Argument parser
+parser = argparse.ArgumentParser('predict', description=description)
+
+parser.add_argument('-a', 
+                    '--t_zero',
+                    help='The transit epoch in arbritraty time units consisting with the input file.', 
+                    default=2457500.60872, type=float)
+
+parser.add_argument('-b', 
+                    '--period',
+                    help='The orbital period in arbritraty time units consisting with the input file.',
+                    default=4.70744, type=float)  
+
+parser.add_argument('-c', 
+                    '--width',
+                    help='The transit width in hrs.', 
+                    default=5.8, type=float)
+
+parser.add_argument('-d', 
+                    '--ntransits',
+                    help='The number of transits to predict.',
+                    default=10, type=int) 
+
+parser.add_argument('-e', 
+                    '--ra',
+                    help='The RA in deg.', 
+                    default=205.96079385700, type=float)
+
+parser.add_argument('-f', 
+                    '--dec',
+                    help='The Dec in deg.', 
+                    default=-12.35998970810, type=float)      
+
+parser.add_argument('--plot', action="store_true", default=False, help="Plot each night")
+parser.add_argument('--complete', action="store_true", default=False, help="Only complete nights")
+parser.add_argument('--LCO', action="store_true", default=False, help="For longitudanal observatories like LCO (or space?). Doesen't check for observability of each object.")
+parser.add_argument('--detail', action="store_false", default=True, help="Simple output")
+
+
+parser.add_argument('-g', 
+                '--observatory',
+                help='The Observatory.',
+                default='SAAO') 
+
+parser.add_argument('-j', 
+                '--name',
+                help='The target name.',
+                default='Star_1')
+
+#
+parser.add_argument('-k', 
+                '--start',
+                help='The date from which to calculate. If not supplied, will default to today. Should be supplied as "2017-01-01"',
+                default='now')
+
+parser.add_argument('-i', 
+                '--end',
+                help='The date from which to calculate. If not supplied, will default to today. Should be supplied as "2017-01-01"',
+                default='now')
+
+
+if __name__=='__main__':
+    # Parse the arguments
+    args = parser.parse_args()
+
+    # Now work out ingress and egress JD from t_zero and width 
+    ingress = args.t_zero - args.width/24./2.
+    egress  = args.t_zero + args.width/24./2.
+
+    # Make the call for ingress events
+    name = args.name + '_ingress_events'
+    print('Ingress     : ', end = '')
+    sys.stdout.flush()
+    call = 'predict --ra {:} --dec {:} --observatory {:} --t_zero {:} --period {:} --width 3 --ntransits {:} --name {:} --complete --start {:} --end {:}'.format(args.ra, args.dec, args.observatory, ingress, args.period, args.ntransits, name, args.start, args.end)
+    if args.LCO : call += ' --LCO'
+    if args.plot : call += ' --plot'
+    os.system(call)
+
+    # Now make the call for the middle 
+    # Make the call for ingress events
+    name = args.name + '_middle_events'
+    print('Mid-transit : ', end = '')
+    sys.stdout.flush()
+    call = 'predict --ra {:} --dec {:} --observatory {:} --t_zero {:} --period {:} --width 3 --ntransits {:} --name {:} --complete --start {:} --end {:}'.format(args.ra, args.dec, args.observatory, args.t_zero, args.period, args.ntransits, name, args.start, args.end)
+    if args.LCO : call += ' --LCO'
+    if args.plot : call += ' --plot'
+    os.system(call)
+
+    # Make the call for egress events
+    name = args.name + '_egress_events'
+    print('Engress     : ', end = '')
+    sys.stdout.flush()
+    call = 'predict --ra {:} --dec {:} --observatory {:} --t_zero {:} --period {:} --width 3 --ntransits {:} --name {:} --complete --start {:} --end {:}'.format(args.ra, args.dec, args.observatory, egress, args.period, args.ntransits, name, args.start, args.end)
+    if args.LCO : call += ' --LCO'
+    if args.plot : call += ' --plot'
+    os.system(call)
+
