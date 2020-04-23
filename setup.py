@@ -33,7 +33,6 @@ setup(
              'Utils/quickphot/quickphot',
              'Utils/quickphot/quickphotcube',
              'Utils/tic2wasp/tic2wasp',
-             'Utils/fitpipe/fitpipe', 'Utils/fitpipe/fitpipe2',
              'Utils/monofind/monofind',
              'Utils/monofind/monofindSGE',
              'Utils/monofind/vet',

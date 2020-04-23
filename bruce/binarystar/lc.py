@@ -9,7 +9,7 @@ from .doppler import Fdoppler
 from .ellipsoidal import Fellipsoidal 
 from .quadratic import Flux_drop_analytical_quadratic 
 from .qpower2 import Flux_drop_analytical_power_2
-from .uniform import Flux_drop_uniform , area
+from .uniform import Flux_drop_uniform , area, frac_secondary
 from .reflection import reflection
 from .annulus import Flux_drop_annulus
 from time import time as _time
@@ -29,7 +29,7 @@ def _lc_engine(time, zp,
         e,w,sini,
         nspots, nflares,
         q, albedo,
-        alpha_doppler, K1,
+        A_doppler,
         spots, flares, omega_1, 
         incl,
         ld_law_1, ldc_1_1, ldc_1_2, gdc_1,
@@ -74,15 +74,18 @@ def _lc_engine(time, zp,
 
         # Next, we need to check for doppler beaming
         # Check for doppler beaming 
-        if (alpha_doppler > 0) and (K1 > 0) : F_doppler = Fdoppler(nu, alpha_doppler, K1 )
+        if (A_doppler > 0) :
+            F_doppler = Fdoppler(nu + w +math.pi, A_doppler ) 
 
-        # Check for eelipsoidal variation and apply it if needed
+        # Check for elipsoidal variation and apply it if needed
         if (q>0.):
-            alpha = math.acos(math.sin(w + nu)*math.sin(incl))
-            F_ellipsoidal = Fellipsoidal(alpha, q, radius_1, incl, 0.5, gdc_1)
+            F_ellipsoidal = Fellipsoidal(nu + w +math.pi/2, q, radius_1, incl, 0.5, gdc_1)
 
         # Next, reflection effect
-        if (A_g > 0) : F_reflection = reflection(time, t_zero, period, A_g, radius_1, e, w, sini, xyz,)
+        if (A_g > 0) : 
+            A_z = math.acos(-math.sin(w + nu)*math.sin(incl))  # https://iopscience.iop.org/article/10.1088/0004-637X/772/1/51/pdf
+            #F_reflection = reflection(nu + w +math.pi, A_g, radius_1, e, w, sini, xyz,)
+            F_reflection = reflection(A_z, A_g)
 
         # Check distance between them to see if its transiting
         if (z < (1.0+ k)):
@@ -103,14 +106,18 @@ def _lc_engine(time, zp,
                 # Now account for SBR (third light)
                 if (SBR>0) : F_transit = F_transit*(1. - k*k*SBR) 
 
-            elif (SBR>0.) :
-                if (ld_law_1!=-1) : F_transit =  Flux_drop_uniform(z, k, SBR) # Secondary eclipse
-                else : F_transit = -1.
+            else:
+                if (A_g > 0) : F_reflection *= frac_secondary(z, k ,1.)
+                if (SBR>0.) :
+                    if (ld_law_1!=-1) : 
+                        F_transit =  Flux_drop_uniform(z, k, SBR) # Secondary eclipse
+                        # We also need to remove a fraction of reflected flux 
+                    else : F_transit = -1.
 
 
         # Now put the model together
         model = continuum + F_spots + F_flares + F_doppler + F_ellipsoidal + F_reflection + F_transit
-
+        #print(F_transit)
         # That's all from the star, so let's account for third light 
         if (light_3 > 0.0) : model = model/(1. + light_3) + (1.-1.0/(1. + light_3)) # third light
 
@@ -123,7 +130,7 @@ def _lc(time, LC, LC_ERR, J, zp,
         radius_1, k ,
         fs, fc, dw,
         q, albedo,
-        alpha_doppler, K1,
+        A_doppler,
         spots, flares, omega_1, 
         incl,
         ld_law_1, ldc_1_1, ldc_1_2, gdc_1,
@@ -135,7 +142,7 @@ def _lc(time, LC, LC_ERR, J, zp,
         loglike_switch ):
 
     # Unpack and convert (assume incl in radians)
-    w = math.atan2(fs, fc) 
+    w = math.atan2(fs,fc)
     e = clip(fs**2 + fc**2,0,0.999) 
     sini = math.sin(incl*math.pi/180.)
     nspots = spots.shape[0]//4 
@@ -152,7 +159,7 @@ def _lc(time, LC, LC_ERR, J, zp,
                                                         e,w,sini,
                                                         nspots, nflares,
                                                         q, albedo,
-                                                        alpha_doppler, K1,
+                                                        A_doppler,
                                                         spots, flares, omega_1, 
                                                         incl,
                                                         ld_law_1, ldc_1_1, ldc_1_2, gdc_1,
@@ -168,7 +175,7 @@ def _lc(time, LC, LC_ERR, J, zp,
                     e,w,sini,
                     nspots, nflares,
                     q, albedo,
-                    alpha_doppler, K1,
+                    A_doppler,
                     spots, flares, omega_1, 
                     incl,
                     ld_law_1, ldc_1_1, ldc_1_2, gdc_1,
@@ -192,7 +199,7 @@ def kernel_lc(time, LC, LC_ERR, J, zp,
         radius_1, k ,
         fs, fc, dw,
         q, albedo,
-        alpha_doppler, K1,
+        A_doppler,
         spots, flares, omega_1, 
         incl,
         ld_law_1, ldc_1_1, ldc_1_2, gdc_1,
@@ -222,7 +229,7 @@ def kernel_lc(time, LC, LC_ERR, J, zp,
                                                     e,w,sini,
                                                     nspots, nflares,
                                                     q, albedo,
-                                                    alpha_doppler, K1,
+                                                    A_doppler,
                                                     spots, flares, omega_1, 
                                                     incl,
                                                     ld_law_1, ldc_1_1, ldc_1_2, gdc_1,
@@ -238,7 +245,7 @@ def kernel_lc(time, LC, LC_ERR, J, zp,
                 e,w,sini,
                 nspots, nflares,
                 q, albedo,
-                alpha_doppler, K1,
+                A_doppler,
                 spots, flares, omega_1, 
                 incl,
                 ld_law_1, ldc_1_1, ldc_1_2, gdc_1,
@@ -267,7 +274,7 @@ def lc(time, LC=np.zeros(1), LC_ERR=np.zeros(1), J=0., zp=0.,
     radius_1=0.2, k=0.2 ,
     fs=0., fc=0., dw = 0.,
     q=0., albedo=0.,
-    alpha_doppler=0., K1=0.,
+    A_doppler=0., 
     spots = np.zeros(1),flares = np.zeros(1), omega_1=1., 
     incl = 90.,
     ld_law_1=2, ldc_1_1=0.8, ldc_1_2=0.8, gdc_1=0.4,
@@ -297,7 +304,7 @@ def lc(time, LC=np.zeros(1), LC_ERR=np.zeros(1), J=0., zp=0.,
             radius_1, k ,
             fs, fc, dw,
             q, albedo,
-            alpha_doppler, K1,
+            A_doppler,
             spots, flares, omega_1, 
             incl,
             ld_law_1, ldc_1_1, ldc_1_2, gdc_1,
@@ -328,7 +335,7 @@ def lc(time, LC=np.zeros(1), LC_ERR=np.zeros(1), J=0., zp=0.,
             radius_1, k ,
             fs, fc, dw,
             q, albedo,
-            alpha_doppler, K1,
+            A_doppler,
             spots, flares, omega_1, 
             incl,
             ld_law_1, ldc_1_1, ldc_1_2, gdc_1,

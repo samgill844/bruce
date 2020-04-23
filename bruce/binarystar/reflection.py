@@ -50,7 +50,7 @@ def xyz_planet(time, t_zero, period, sini, ecc, omdeg, xyz):
     xyz[1] = r*cosi*(cosv*sinw + sinv*cosw)
     xyz[2] = -r*sini*(cosw*sinv + cosv*sinw)
 
-
+'''
 @numba.njit
 def reflection(t, T_0, P, A_g, r_p, ecc, om, sini, xyz):
     xyz_planet(t, T_0, P, sini, ecc, om, xyz)
@@ -58,6 +58,13 @@ def reflection(t, T_0, P, A_g, r_p, ecc, om, sini, xyz):
     beta = math.acos(-xyz[2]/r)
     Phi_L = (math.sin(beta) + (math.pi-beta)*math.cos(beta) )/math.pi
     return A_g*(r_p/r)**2*Phi_L 
+'''
+
+@numba.njit
+def reflection(A_z, A_p):
+    # https://iopscience.iop.org/article/10.1088/0004-637X/772/1/51/pdf 
+
+    return A_p*(math.sin(A_z) + (math.pi-A_z)*math.cos(A_z))/math.pi
 
 
 

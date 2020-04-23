@@ -9,78 +9,101 @@ def sign(a,b) :
     if b >= 0.0 : return abs(a)
     return -abs(a)
 
-    
+@numba.njit
+def merge(a,b,mask):
+    if mask : return a 
+    else : return b
 
 ###################################################
 # Brent minimisation
 ###################################################
+
 @numba.njit
-def brent(x1,x2,  e, incl, w, radius_1):
+def brent(ax, bx, cx, e, incl, w, radius_1):
+    #######################################################
+    # Find the minimum of a function (func) between ax and
+    # cx and that func(bx) is less than both func(ax) and 
+    # func(cx). 
+    # z0 is the additional arguments 
+    #######################################################
     # pars
-    tol = 1e-8
+    tol = 1e-5
     itmax = 100
     eps = 1e-5
+    cgold = 0.3819660
+    zeps = 1.0e-10
 
-    a = x1
-    b = x2
-    c = 0.
+    a = min(ax, cx)
+    b = max(ax, cx)
     d = 0.
-    e = 0.
-    fa = get_z(a, e, incl, w, radius_1)
-    fb = get_z(b, e, incl, w, radius_1)
-
-    fc = fb
+    v = bx
+    w = v
+    x = v
+    e = 0.0
+    #fx = func(x,z0)
+    fx = get_z(x, e, incl, w, radius_1)
+    fv = fx
+    fw = fx
+    #print(ax,bx,cx)
 
     for iter in range(itmax):
-        if (fb*fc > 0.0):
-            c = a
-            fc = fa
-            d = b-a
-            e=d   
+        xm = 0.5*(a+b)
+        tol1 = tol*abs(x)+zeps
+        tol2 = 2.0*tol1
+        #print(iter, x, abs(x-xm), tol2-0.5*(b-a))
+        if(abs(x-xm) <= (tol2-0.5*(b-a))):
+            return x
+        
+        if(abs(e) > tol1):
+            r = (x-w)*(fx-fv)
+            q = (x-v)*(fx-fw)
+            p = (x-v)*q - (x-w)*r
+            q = 2.0*(q-r)
+            if (q > 0.0) :  p = - p
+            q = abs(q)
+            etemp = e
+            e = d
 
-        if (abs(fc) < abs(fb)):
-            a = b
-            b = c
-            c = a
-            fa = fb
-            fb = fc
-            fc = fa
-
-        tol1 = 2.0*eps*abs(b)+0.5*tol
-        xm = (c-b)/2.0
-        if (abs(xm) <  tol1 or fb == 0.0) : return b
-
-        if (abs(e) > tol1 and abs(fa) >  abs(fb)):
-            s = fb/fa
-            if (a == c):
-                p = 2.0*xm*s
-                q = 1.0-s
+            if (  (abs(p) >= abs(.5*q*etemp)) or (p <= q*(a-x)) or (p >= q*(b-x))):
+                e = merge(a-x, b-x, p >= q*(b-x))
+                d = cgold*e
             else:
-                q = fa/fc
-                r = fb/fc
-                p = s*(2.0*xm*q*(q-r)-(b-a)*(r-1.0))
-                q = (q-1.0)*(r-1.0)*(s-1.0)
-            
-            if (p > 0.0) : q = - q
-            p = abs(p)
-            if (2.0*p < min(3.0*xm*q-abs(tol1*q),abs(e*q))):
-                e = d
                 d = p/q
-            else:
-                d = xm
-                e = d
+                u=x+d
+                if ( ((u-a) < tol2) or ((b-u) < tol2)) :  d = sign(tol1, xm-x)
         else:
-            d = xm
-            e = d   
+            e = merge(a-x, b-x, x >= xm)
+            d = cgold*e
 
-        a = b
-        fa = fb      
-         
-        if( abs(d) > tol1) : b = b + d
-        else : b = b + sign(tol1, xm)
+        u = merge(x+d, x+sign(tol1,d), abs(d) >= tol1)
+        #fu = func(u,z0)
+        fu = get_z(u, e, incl, w, radius_1)
 
-        fb = get_z(b, e, incl, w, radius_1)
-    return 1
+
+        if (fu <= fx):
+            if ( u >= x) : a = x 
+            else : b = x 
+            #shft(v,w,x,u)
+            v = w 
+            w = x 
+            x = u 
+            #shft(fv,fw,fx,fu)
+            fv = fw
+            fw = fx 
+            fx = fu 
+        else:
+            if (u < x) : a = u 
+            else : b = u 
+            if ((fu <= fw) or (w==x)):
+                v=w
+                fv=fw
+                w=u
+                fw=fu
+            elif ((fu <= fv) or (v==x) or (v==w)):
+                v = u
+                fv = fu 
+    return 1.
+
 
 # Gravatational constant 
 G = 6.67408e-11
@@ -152,14 +175,20 @@ def t_ecl_to_peri(t_ecl, e, w, incl, p_sid,radius_1):
     sin2i = math.sin(incl)**2.
 
     # Value of theta for i=90 degrees
-    ee = 0.
     theta_0 = (math.pi/2.) - w       # True anomaly at superior conjunction
 
     # Accurate time of eclipse prior to periastro 
+    '''
     if incl != math.pi/2 :
-        theta = brent(theta_0 - math.pi/2,theta_0 + math.pi/2,  e, incl, w, radius_1)
+        theta = brent(theta_0 - math.pi/2, theta_0, theta_0 + math.pi/2,  e, incl, w, radius_1)
+        print(theta_0, theta)
     else:
         theta = theta_0
+    '''
+    #if theta < 0 : theta = 1 + theta
+
+    # Instead, we assume that the time immediately prior to periastron is
+    # at superiod conjunction is good. 
     theta = theta_0 # BODGE!
 
     if (theta == math.pi) :  ee = math.pi
@@ -176,7 +205,7 @@ def t_ecl_to_peri(t_ecl, e, w, incl, p_sid,radius_1):
 @numba.njit(fastmath=True)
 def getTrueAnomaly(time, e, w, period,  t_zero, incl, E_tol, radius_1 ):
     # Get time immediatly priore to periastron passage
-    tp = t_ecl_to_peri(t_zero, e, w, incl, period, radius_1)
+    tp = t_ecl_to_peri(t_zero, e, w, incl, period, radius_1)  
 
     if e<1e-5:
         return ((time - tp)/period - math.floor(((time - tp)/period)))*2.*math.pi
@@ -194,7 +223,7 @@ def getTrueAnomaly(time, e, w, period,  t_zero, incl, E_tol, radius_1 ):
 #  Calculate the projected seperaton  #
 #######################################
 @numba.njit(fastmath=True)
-def get_z(nu, e, incl, w, radius_1) : return (1-e**2) * math.sqrt( 1.0 - math.sin(incl)**2  *  math.sin(nu + w)**2) / (1 + e*math.sin(nu)) /radius_1
+def get_z(nu, e, incl, w, radius_1) : return (1-e**2) * math.sqrt( 1.0 - math.sin(incl)**2  *  math.sin(nu + w)**2) / (1 + e*math.cos(nu)) /radius_1
 
 #@numba.njit(fastmath=True)
 #def get_z_(nu, z) : return get_z(nu, z[0], z[1], z[2], z[3]) # for brent

@@ -2,13 +2,18 @@ import math, numba
 
 @numba.njit
 def area(d, x, R):
-    if(x <= (R - d)) :  return math.pi*x*x						
-    elif(x >= (R + d)) : return math.pi*R*R				
+    if (x <= (R - d)) :  return math.pi*x*x						
+    elif (x >= (R + d)) : return math.pi*R*R	
+    elif (d > (x+R)) : return 0.			
     else :  
         arg1 = (d*d + x*x - R*R)/(2.*d*x)
         arg2 = (d*d + R*R - x*x)/(2.*d*R)
         arg3 = max((-d + x + R)*(d + x - R)*(d - x + R)*(d + x + R), 0.)
         return x*x*math.acos(arg1) + R*R*math.acos(arg2) - 0.5*math.sqrt(arg3)
+
+@numba.njit
+def frac_secondary(d,x,R):
+    return 1 - area(d, x,R)/(math.pi*x**2)
 
 
 @numba.njit

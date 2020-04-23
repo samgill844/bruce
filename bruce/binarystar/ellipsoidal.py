@@ -2,7 +2,7 @@ import numba, math
 
 
 @numba.njit
-def Fellipsoidal(nu, q, radius_1, incl, u, y):
+def Fellipsoidal(phase, q, radius_1, incl, u, y):
     # SUrray of https:#books.google.co.uk/books?id=ngtmDwAAQBAJ&pg=PA239&lpg=PA239&dq=ellipsoidal+variation+approximation+binary+star&source=bl&ots=swiO_JQdIR&sig=ACfU3U0HVtS8G37Z7EbdjDymUqICD36FgA&hl=en&sa=X&ved=2ahUKEwiO1tH9ud7hAhWDaFAKHRVoASIQ6AEwC3oECAkQAQ#v=onepage&q=ellipsoidal%20variation%20approximation%20binary%20star&f=false
     # q - mass ratio
     # radius_1 - R*/a 
@@ -22,7 +22,7 @@ def Fellipsoidal(nu, q, radius_1, incl, u, y):
     f2 = 5*alpha1*radius_1*math.sin(incl)
 
     # Now return the variation 
-    return -Ae*( math.cos(2*nu)    +    f1*math.cos(nu)      +      f2*math.cos(3*nu) ) 
+    return -Ae*( math.cos(2*phase)    +    f1*math.cos(phase)      +      f2*math.cos(3*phase) ) 
 
 '''
 import numpy as np 
