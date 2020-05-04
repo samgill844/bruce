@@ -9,7 +9,7 @@ setup(
     author_email = 'samuel.gill@warwick.ac.uk',
     license = 'GNU',
     packages=['bruce','bruce/binarystar'],
-    scripts=['Utils/ngtsfit/ngtsfit',
+    scripts=['Utils/ngtsfit/ngtsfit','Utils/ngtsfit/lcfit',
              'Utils/lcbin/lcbin',
              'Utils/tessget/tessget',
              'Utils/tessget/tessgetpca',

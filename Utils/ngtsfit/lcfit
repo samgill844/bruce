@@ -1,0 +1,818 @@
+#!/home/sam/anaconda3/bin/python
+
+
+###########################################################################
+#                              Imports                                    #
+###########################################################################
+
+from bruce import lc
+from bruce.binarystar.kepler import find_secondary_phase 
+
+import emcee, corner, sys, os, numpy as np, math
+import matplotlib.pyplot as plt 
+import argparse 
+from multiprocessing import Pool
+from celerite.modeling import Model
+from celerite import terms, GP
+from scipy.stats import chisquare, sem
+import matplotlib.cm as cm
+import matplotlib.gridspec as gridspec
+from scipy.optimize import minimize
+from matplotlib.ticker import (MultipleLocator, FormatStrFormatter,
+                               AutoMinorLocator)
+from matplotlib.patches import Wedge, Ellipse
+from matplotlib.collections import PatchCollection
+np.warnings.filterwarnings('ignore')
+
+from lmfit import minimize, Parameters, Minimizer, printfuncs, conf_interval
+import lmfit 
+
+plt.rcParams["font.family"] = "Times New Roman"
+
+
+###########################################################################
+#                              Handy functions                            #
+###########################################################################
+
+def lc_bin(time, flux, bin_width):
+        '''
+        Function to bin the data into bins of a given width. time and bin_width 
+        must have the same units
+        '''
+        
+        edges = np.arange(np.min(time), np.max(time), bin_width)
+        dig = np.digitize(time, edges)
+        time_binned = (edges[1:] + edges[:-1]) / 2
+        flux_binned = np.array([np.nan if len(flux[dig == i]) == 0 else flux[dig == i].mean() for i in range(1, len(edges))])
+        err_binned = np.array([np.nan if len(flux[dig == i]) == 0 else sem(flux[dig == i]) for i in range(1, len(edges))])
+        time_bin = time_binned[~np.isnan(err_binned)]
+        err_bin = err_binned[~np.isnan(err_binned)]
+        flux_bin = flux_binned[~np.isnan(err_binned)]   
+        
+        return time_bin, flux_bin, err_bin
+
+
+###########################################################################
+#                              The transit model                          #
+###########################################################################
+# Define the model
+transit_model_bounds = dict(radius_1 = (0, 0.9), k = (0, 0.9), b = (0,2), fs = (-1,1), fc = (-1,1), SBR = (0,1), light3 = (0, None), J = (0, None))
+
+class transitmodel(Model):
+    parameter_names = ("t_zero", "period", "radius_1", "k", "fs", "fc", "b", "q", "albedo", "A_doppler",
+                        "spots", "omega_1", "ldc_law_1","h1", "h2", "gdc_1",
+                        "SBR", "light_3", "E_tol" , "zp", "J" , "cadence", "noversample")
+
+    def get_value(self, t):
+        ldc_1_1 =  1 - self.h1 + self.h2
+        ldc_1_2 =   np.log2( ldc_1_1 / self.h2)
+        return self.zp - 2.5*np.log10(lc(t, t_zero = self.t_zero, period = self.period,
+                radius_1 = self.radius_1, k=self.k, 
+                fs = self.fs, fc = self.fc, 
+                q=self.q, albedo = self.albedo,
+                A_doppler=self.A_doppler,
+                spots = np.array(self.spots), omega_1=self.omega_1,
+                incl = 180*np.arccos(self.radius_1*self.b)/np.pi,
+                ld_law_1=int(self.ldc_law_1), ldc_1_1 = ldc_1_1, ldc_1_2 = ldc_1_2, gdc_1 = self.gdc_1,
+                SBR=self.SBR, light_3 = self.light_3,
+                E_tol=self.E_tol,
+                cadence = self.cadence, noversample = self.noversample))
+
+
+
+    def get_log_prob_prior(self, h1_ref, h2_ref):
+        return -0.5*( ((self.h1 - h1_ref)**2)/(0.003**2) +     ((self.h2 - h2_ref)**2)/(0.046**2)    )
+
+    def log_likelihood(self, t, mag, mag_err, h1_ref, h2_ref):
+        ldc_1_1 =  1 - self.h1 + self.h2
+        ldc_1_2 =   np.log2( ldc_1_1 / self.h2)
+        llike =  lc(t, mag, mag_err, t_zero = self.t_zero, period = self.period,
+                radius_1 = self.radius_1, k=self.k, zp = self.zp,
+                fs = self.fs, fc = self.fc, 
+                q=self.q, albedo = self.albedo,
+                A_doppler=self.A_doppler,
+                spots = np.array(self.spots), omega_1=self.omega_1,
+                incl = 180*np.arccos(self.radius_1*self.b)/np.pi,
+                ld_law_1=int(self.ldc_law_1), ldc_1_1 = ldc_1_1, ldc_1_2 = ldc_1_2, gdc_1 = self.gdc_1,
+                SBR=self.SBR, light_3 = self.light_3,
+                E_tol=self.E_tol,
+                cadence = self.cadence, noversample = self.noversample)
+
+
+        lp = llike + self.get_log_prob_prior(h1_ref, h2_ref)
+        if np.isnan(lp) : return -np.inf 
+        else : return lp
+
+
+    def check_lims(self, t_zero_ref, period_ref):
+        if (self.t_zero < t_zero_ref - 0.1*period_ref) or (self.t_zero > t_zero_ref + 0.1*period_ref) : return -np.inf
+        if (self.period < period_ref - 1e-2) or (self.period > period_ref + 1e-2) : return -np.inf 
+        if (self.k < 0.0) or (self.k > 0.8) : return -np.inf 
+        if (self.radius_1 < 0.0) or (self.radius_1 > 0.8) : return -np.inf 
+        if (self.b < 0) or (self.b > 1.0 + self.k) : return -np.inf 
+        if (self.J < 0) : return -np.inf 
+        if (self.q < 0) : return -np.inf 
+        if (self.zp < -20) or (self.zp > 20) : return -np.inf 
+        if (self.fs < -0.7) or (self.fs > 0.7) : return -np.inf 
+        if (self.fc < -0.7) or (self.fc > 0.7) : return -np.inf 
+        if ((self.fc**2 +  self.fs**2) > 0.999) : return -np.inf 
+        if (self.SBR < 0) or (self.SBR > 1) : return -np.inf 
+        return 0.
+
+
+
+###########################################################################
+#                              The rotation GP kernel                     #
+###########################################################################
+
+
+# Define the custom kernel
+class RotationTerm(terms.Term):
+    parameter_names = ("log_amp", "log_timescale", "log_period", "log_factor")
+
+    def get_real_coefficients(self, params):
+        log_amp, log_timescale, log_period, log_factor = params
+        f = np.exp(log_factor)
+        return (
+            np.exp(log_amp) * (1.0 + f) / (2.0 + f),
+            np.exp(-log_timescale),
+        )
+
+    def get_complex_coefficients(self, params):
+        log_amp, log_timescale, log_period, log_factor = params
+        f = np.exp(log_factor)
+        return (
+            np.exp(log_amp) / (2.0 + f),
+            0.0,
+            np.exp(-log_timescale),
+            2*np.pi*np.exp(-log_period),
+        )
+
+###########################################################################
+#                        The lnlike functions                             #
+###########################################################################
+def residuals_lmfit(pars, time, mag, mag_err, t_zero_ref, period_ref, h1_ref, h2_ref, theta_names, lnlike=False):
+    # First, set the attributes 
+    if lnlike : 
+        for i in range(len(theta_names)) : 
+            transit_model.set_parameter(theta_names[i], pars[i])
+    else:
+        for i in range(len(theta_names)) : transit_model.set_parameter(theta_names[i], float(pars[theta_names[i]]))
+
+    if lnlike : 
+        #  First, lets check the limits
+        if np.isinf(transit_model.check_lims(t_zero_ref, period_ref)) : return -np.inf
+
+        # now return a log-likliehood
+        return transit_model.log_likelihood( time, mag, mag_err, h1_ref, h2_ref)
+
+    else :       return (mag - transit_model.get_value(time))**2 / (mag_err**2)
+
+
+# time, mag, mag_err, t_zero_ref, period_ref, args.h1, args.h2, args.gp_fitpars, True
+def residuals_lmfit_gp(pars, time, mag, mag_err, t_zero_ref, period_ref, h1_ref, h2_ref, theta_names, gp_theta_names, lnlike=False):
+    # First, set the attributes 
+    if lnlike:
+        for i in range(len(theta_names)) : gp.set_parameter(gp_theta_names[i], pars[i])
+    else:
+        for i in range(len(theta_names)) : gp.set_parameter(gp_theta_names[i], float(pars[theta_names[i]]))
+
+    # Extra bounds
+    if (gp.get_parameter('mean:t_zero') < (t_zero_ref - 0.1*period_ref)) or (gp.get_parameter('mean:t_zero') > (t_zero_ref + 0.1*period_ref)) : return -np.inf
+    if (gp.get_parameter('mean:period') < (period_ref - 0.1*period_ref)) or (gp.get_parameter('mean:period') > (period_ref + 0.1*period_ref)) : return -np.inf 
+    if (gp.get_parameter('mean:SBR') < 0) or (gp.get_parameter('mean:SBR') > 1) : return -np.inf 
+
+    if lnlike:
+        # We don't need to do bounds, that should already be done 
+        lp = gp.log_prior() -0.5*( ((gp.get_parameter('mean:h1') - h1_ref)**2)/(0.003**2) +     ((gp.get_parameter('mean:h2') - h2_ref)**2)/(0.046**2)    )
+        if not np.isfinite(lp) : return -np.inf 
+        return gp.log_likelihood(mag) + lp
+
+    else:
+        # Return residuals
+        mu, var = gp.predict(mag, time, return_var=True)
+        return (mag - mu)**2 / (mag_err**2)
+
+###########################################################################
+#                        Argument parser                                  #
+###########################################################################
+
+# Argument parser
+description = '''A program to fit binary star observations elegantly. 
+Use the -h flag to see all available options for the fit. For any questions, 
+please email samuel.gill@warwick.ac.uk'''
+parser = argparse.ArgumentParser('ngtsfit', description=description)
+#parser.add_argument('-t', 
+#                help='The transit epoch in arbritraty time units consisting with the input file.', 
+#                dest="t_zero", 
+#                action='store')
+
+parser.add_argument("filename",
+                    help='The filename of the binary star information')
+
+
+parser.add_argument('-a', 
+                    '--t_zero',
+                    help='The transit epoch in arbritraty time units consisting with the input file.', 
+                    default=0.0, type=float)
+
+parser.add_argument('-b', 
+                    '--period',
+                    help='The orbital period in arbritraty time units consisting with the input file.',
+                    default=1.0, type=float)  
+
+parser.add_argument('-c', 
+                    '--radius_1',
+                    help='The radius of star 1 in units of the semi-major axis, a.',
+                    default=0.2, type=float)  
+
+parser.add_argument('-d', 
+                    '--k',
+                    help='The ratio of the radii of star 2 and star 1 (R2/R1).',
+                    default=0.2, type=float)  
+    
+parser.add_argument('-e', 
+                    '--b',
+                    help='The impact parameter of the orbit (incl = arccos(radius_1*b).',
+                    default=0., type=float)  
+
+parser.add_argument('-f', 
+                    '--zp',
+                    help='The photometric zero-point.',
+                    default=0., type=float) 
+
+parser.add_argument('-g', 
+                '--limb_darkening_law',
+                help='The limb-darkening law for star 1. Options are: 1) quadratic, 2) power2 .',
+                default='power2') 
+
+parser.add_argument('-i', 
+                '--h1',
+                help='The first limb-darkening coefficient [default 0.5].',
+                default=0.7, type=float)
+
+parser.add_argument('-j', 
+                '--h2',
+                help='The second limb-darkening coefficient [default 0.2].',
+                default=0.4, type=float) 
+
+
+parser.add_argument('-k', '--spots', 
+                    help='The information for spots on star 1, if required', 
+                    nargs='+', 
+                    type=float, 
+                    default=[])
+
+parser.add_argument('-l', 
+                '--gdc_1',
+                help='The gravity darkening coefficient of star 1 [default 0.4].',
+                default=0.4, type=float) 
+
+parser.add_argument('-m', 
+                '--q',
+                help='The mass ratio of star 2 to star 1 [default 0.].',
+                default=0., type=float) 
+
+parser.add_argument('-n', 
+                '--albedo',
+                help='The albedo of the secondary [default 0.]',
+                default=0., type=float)
+
+parser.add_argument('-o', 
+                '--A_doppler',
+                help='The A_doppler parameter.',
+                default=0., type=float)
+
+parser.add_argument('-q', 
+                '--light_3',
+                help='The third light in the system [default 0.].',
+                default=0., type=float)
+
+parser.add_argument('-r', 
+                '--SBR',
+                help='The surface-brightness ratio [default 0.].',
+                default=0., type=float)
+
+parser.add_argument('-w', 
+                '--J',
+                help='The additional Jitter [default 0.].',
+                default=0., type=float)
+
+parser.add_argument('--trial', action="store_true", default=False)
+
+parser.add_argument('-s', 
+                '--plot_alpha',
+                help='The plot alpha',
+                default=1., type=float)
+
+
+parser.add_argument('-t', '--fitpars', 
+                    help='A comma seperated list of free parameters', 
+                    nargs='+',
+                    default=[])
+
+parser.add_argument('-u', 
+                '--emcee_steps',
+                help='The number of emcee steps [default 1000]',
+                default=10000, type=int)
+
+parser.add_argument('-v', 
+                '--emcee_burn_in',
+                help='The number of emcee steps to discard [default 500]',
+                default=5000, type=int)
+
+parser.add_argument('-x', 
+                '--threads',
+                help='The number of threads to use [default 1]',
+                default=10, type=int)
+
+parser.add_argument('-y', 
+        '--bin',
+        help='The bin width from which to bin the lightcurve, in minutes [default=None].', 
+        default=0.0, type=float)   
+
+
+parser.add_argument('--gp', action="store_true", default=False)
+parser.add_argument('--backend', action="store_true", default=False)
+
+
+parser.add_argument('-ab', 
+        '--log_amp',
+        help='log_amp for GP', 
+        default=-10.92420820929161, type=float)           
+
+parser.add_argument('-ac', 
+        '--log_timescale',
+        help='log_timescale for GP', 
+        default=5.821080194036538, type=float) 
+
+
+parser.add_argument('-ax', 
+        '--log_period',
+        help='log_period for GP', 
+        default=1.7458691443708192, type=float) 
+
+parser.add_argument('-ay', 
+        '--log_factor',
+        help='log_factor for GP', 
+        default=4.360312565858812, type=float) 
+
+parser.add_argument('-z', 
+        '--log_sigma',
+        help='log_sigma for GP', 
+        default=-4, type=float) 
+
+parser.add_argument('-ad', 
+        '--fs',
+        help='fs for eccentricity = sin(omega)*root(e)', 
+        default=0.0, type=float)  
+
+parser.add_argument('-ae', 
+        '--fc',
+        help='fs for eccentricity = cos(omega)*root(e)', 
+        default=0.0, type=float)  
+
+parser.add_argument('-af', 
+        '--omega_1',
+        help='Ratio of angular rotation of the host star to orbiting body.  ', 
+        default=1.0, type=float) 
+
+
+parser.add_argument('-aq', 
+        '--savepath',
+        help='The save path [default .]', 
+        default='.', type=str) 
+
+parser.add_argument('-aw', 
+        '--name',
+        help='The system name [default star]', 
+        default='star', type=str) 
+
+
+parser.add_argument('-bc', 
+                    '--R1',
+                     help='The radius of star 1', type=float,
+                    default=-1)
+
+parser.add_argument('-bd', 
+                    '--T1',
+                     help='The temperature of star 1', type=float,
+                    default=-1)
+
+parser.add_argument('-be', 
+                    '--L1',
+                     help='The luminosity of star 1', type=float,
+                    default=-1)
+
+
+parser.add_argument('-bf', 
+                    '--cadence',
+                     help='The cadence of observations.', type=float,
+                    default=-1)
+
+parser.add_argument('-bg', 
+                    '--noversample',
+                     help='The noversample to account for the cadence of observations.', type=int,
+                    default=9)
+
+
+parser.add_argument('--lmfit', action="store_true", default=False)
+parser.add_argument('--lmfit_error', action="store_true", default=False)
+parser.add_argument('--emcee', action="store_true", default=False)
+
+
+###########################################################################
+#                             Plot functions                              #
+###########################################################################
+
+def phaser(time, t_zero, period) : return ((time - t_zero)/period) - np.floor((time - t_zero)/period) 
+
+def transit_width(r, k, b, P=1, arr=False):
+    """
+    Total transit duration.
+    See equation (3) from Seager and Malen-Ornelas, 2003ApJ...585.1038S.
+    :param r: R_star/a
+    :param k: R_planet/R_star
+    :param b: impact parameter = a.cos(i)/R_star
+    :param P: orbital period (optional, default P=1)
+    :returns: Total transit duration in the same units as P.
+    """
+    width = P*np.arcsin(r*np.sqrt( ((1+k)**2-b**2) / (1-b**2*r**2) ))/np.pi
+    if arr : width[np.isnan(width) | np.isinf(width)] = 0.05
+    else : 
+        if np.isnan(width) or np.isinf(width) : width = 0.05
+    return width
+
+def plot_solution(suffix = 'solution'):
+    model_color = "#ff7f0e"
+
+    # Set up the figure and axes
+    fig = plt.figure(figsize=(15,10))
+    spec = gridspec.GridSpec(ncols=2, nrows=3, figure=fig)
+    ax1 = fig.add_subplot(spec[0, :])
+    ax1.invert_yaxis()
+    ax1.set_ylabel('Mag')
+    ax1.set_xlabel('JD -{:}'.format(time[0])) 
+    ax1.set_title('{:} {:}'.format(args.name, suffix))
+    ax2 = fig.add_subplot(spec[1, 0])
+    ax2.invert_yaxis()
+    ax2.set_xlabel('Phase')
+    ax2.set_ylabel('Mag')
+    ax2.set_title('Primary')
+
+    ax3 = fig.add_subplot(spec[1, 1])
+    ax3.invert_yaxis()
+    ax3.set_ylabel('Mag')
+    ax3.set_xlabel('Phase')
+    ax3.set_title('Secondary')
+
+    ax4 = fig.add_subplot(spec[2, 0], sharex=ax2)
+    ax4.set_ylabel('O-C [Mag]')
+    ax4.set_xlabel('Phase')
+    ax4.invert_yaxis()
+
+    ax5 = fig.add_subplot(spec[2, 1], sharex=ax3, sharey = ax4)
+    ax5.set_ylabel('O-C [Mag]')
+    ax5.set_xlabel('Phase')
+    ax5.invert_yaxis()
+
+    # AX1
+    ax1.scatter(time-time[0], mag, c='k', s=10, alpha=args.plot_alpha)
+    if args.gp: 
+        mu, var = gp.predict(mag, time, return_var=True)
+        std = np.sqrt(var) 
+        ax1.fill_between(time-time[0], mu+std, mu-std, color=model_color, alpha=0.3, edgecolor="none")
+        ydiff = np.max(mu + var)-np.min(mu-var)
+        ax1.set_ylim([1.5*ydiff, -0.5*ydiff])
+        rediduals = mag - mu
+    else:
+        time_upsampled = np.arange(time[0], time[-1], time[1]-time[0])
+        ax1.plot(time_upsampled-time[0], transit_model.get_value(time_upsampled), model_color)
+        ydiff = np.max(transit_model.get_value(time_upsampled))-np.min(transit_model.get_value(time_upsampled))
+        ax1.set_ylim([1.5*ydiff, -0.5*ydiff])
+        rediduals = mag - transit_model.get_value(time)
+
+    # AX 2 + 3
+    phase = phaser(time, transit_model.get_parameter('t_zero')-0.2*transit_model.get_parameter('period'), transit_model.get_parameter('period')) - 0.2
+    backup = [transit_model.get_parameter('t_zero'),transit_model.get_parameter('period'),transit_model.get_parameter('zp')]
+    transit_model.set_parameter('t_zero', 0.0)
+    transit_model.set_parameter('period', 1.0) 
+    transit_model.set_parameter('zp', 0.)
+    if args.gp : detrended =  mag - mu + transit_model.get_value(phase)
+    else : detrended = np.copy(mag)
+
+    ax2.scatter(phase, detrended , c='k', s=10)
+    ax3.scatter(phase, detrended , c='k', s=10)
+    ax2.set_ylim([1.5*ydiff, -0.5*ydiff])
+    ax3.set_ylim([1.5*ydiff, -0.5*ydiff])
+    if args.gp : 
+        phase_width = transit_width(gp.get_parameter('mean:radius_1'), gp.get_parameter('mean:k'), gp.get_parameter('mean:b'), P=1)
+        secondary_phase = find_secondary_phase(gp.get_parameter('mean:fs'), gp.get_parameter('mean:fc'))
+    else:        
+        phase_width = transit_width(transit_model.get_parameter('radius_1'), transit_model.get_parameter('k'), transit_model.get_parameter('b'), P=1)
+        secondary_phase = find_secondary_phase(transit_model.get_parameter('fs'), transit_model.get_parameter('fc'))
+    ax2.set_xlim(-phase_width,phase_width)
+    ax3.set_xlim(-phase_width+secondary_phase,phase_width+secondary_phase)
+
+    phase_time = np.linspace(-0.2,1,10000)
+    if args.gp : 
+        ax2.fill_between(phase_time, transit_model.get_value(phase_time)+np.median(std), transit_model.get_value(phase_time)-np.median(std), color=model_color, alpha=0.3, edgecolor="none")
+        ax3.fill_between(phase_time, transit_model.get_value(phase_time)+np.median(std), transit_model.get_value(phase_time)-np.median(std), color=model_color, alpha=0.3, edgecolor="none")
+    else : 
+        ax2.plot(phase_time, transit_model.get_value(phase_time), model_color)
+        ax3.plot(phase_time, transit_model.get_value(phase_time), model_color)
+
+    # AX 4 + 5
+    ax4.scatter(phase, rediduals , c='k', s=10)
+    ax5.scatter(phase, rediduals , c='k', s=10)
+    ydif = np.max(rediduals) - np.min(rediduals)
+    ax4.set_ylim(-ydif,ydif)
+    if args.gp:
+        ax4.fill_between(phase_time, np.median(std), -np.median(std), color=model_color, alpha=0.3, edgecolor="none")
+        ax5.fill_between(phase_time, np.median(std), -np.median(std), color=model_color, alpha=0.3, edgecolor="none")
+    else:
+        ax4.axhline(0., ls='--', color=model_color, alpha=0.3)
+        ax5.axhline(0., ls='--', color=model_color, alpha=0.3)
+
+    plt.tight_layout()
+
+
+    # Now return transit model to previous state
+    transit_model.set_parameter('t_zero', backup[0])
+    transit_model.set_parameter('period', backup[1]) 
+    transit_model.set_parameter('zp', backup[1])
+    plt.show()
+
+
+
+###########################################################################
+#                             Messages                                    #
+###########################################################################
+
+
+welcome_message = """.     .       .  .   . .   .   . .    +  .             Lightcurve fitting - V0.1
+  .     .  :     .    .. :. .___---------___.          
+       .  .   .    .  :.:. _".^ .^ ^.  '.. :"-_. . 
+    .  :       .  .  .:../:            . .^  :.:\.
+        .   . :: +. :.:/: .   .    .        . . .:\ 
+ .  :    .     . _ :::/:               .  ^ .  . .:\ 
+  .. . .   . - : :.:./.                        .  .:\ 
+  .      .     . :..|:                    .  .  ^. .:|
+    .       . : : ..||        .                . . !:|
+  .     . . . ::. ::\(                           . :)/
+ .   .     : . : .:.|. ######              .#######::|
+  :.. .  :-  : .:  ::|.#######           ..########:|
+ .  .  .  ..  .  .. :\ ########          :######## :/
+  .        .+ :: : -.:\ ########       . ########.:/
+    .  .+   . . . . :.:\. #######       #######..:/
+      :: . . . . ::.:..:.\           .   .   ..:/
+   .   .   .  .. :  -::::.\.       | |     . .:/
+      .  :  .  .  .-:.":.::.\             ..:/
+ .      -.   . . . .: .:::.:.\.           .:/
+.   .   .  :      : ....::_:..:\   ___.  :/
+   .   .  .   .:. .. .  .: :.:.:\       :/
+     +   .   .   : . ::. :.:. .:.|\  .:/|
+     .         +   .  .  ...:: ..|  --.:|                            Samuel Gill
+.      . . .   .  .  . ... :..:.."(  ..)"                  University of Warwick
+ .   .       .      :  .   .: ::/  .  .::\             samuel.gill@warwick.ac.uk"""
+
+row_delim="################################################################################"
+
+
+###########################################################################
+#                                  Main                                   #
+###########################################################################
+
+
+if __name__ == "__main__":
+    # Print the welcome message 
+    print(row_delim)
+    print(welcome_message)
+    print(row_delim)
+
+    # Parse the arguments
+    args = parser.parse_args()
+
+    ###########################################################################
+    #                              Load data                                  #
+    ###########################################################################
+
+    # Now load the datafile
+    try : time, mag, mag_err = np.loadtxt(args.filename).T
+    except:
+        try : time, mag, mag_err, aaaaa, aaaaaaa = np.loadtxt(args.filename).T
+        except:
+            time, mag = np.loadtxt(args.filename).T
+            mag_err = np.ones(time.shape[0])*1e-3
+
+    # now mask 
+    mask = np.isnan(mag) | np.isinf(mag) | np.isnan(mag_err) | np.isinf(mag_err)
+    try : time, mag, mag_err = np.loadtxt(args.filename)[~mask].T
+    except:
+        try : time, mag, mag_err, aaaaa, aaaaaaa = np.loadtxt(args.filename)[~mask].T
+        except:
+            time, mag = np.loadtxt(args.filename)[~mask].T
+            mag_err = np.ones(time.shape[0])*1e-3
+
+    print('Loaded {:,} lines from {:}'.format(len(time),args.filename))
+    if args.bin > 0 : 
+        time, mag, mag_err = lc_bin(time, mag, args.bin/24./60.)
+        print('\treduced to {:} lines with {:}-minute binning'.format(len(time), args.bin))
+
+    time = time.astype(np.float64)
+    mag = mag.astype(np.float64) 
+    mag_err = mag_err.astype(np.float64)
+    print(row_delim)
+
+    ###########################################################################
+    #                              Adress limb-darkening                      #
+    ###########################################################################
+    if args.limb_darkening_law =='uniform' : ld_law = 0
+    if args.limb_darkening_law =='quadratic' : ld_law = 1
+    if args.limb_darkening_law =='power2'    : ld_law = 2 
+
+
+    ###########################################################################
+    #                              Initialse the transit model                #
+    ###########################################################################
+    transit_model = transitmodel(t_zero = args.t_zero, period = args.period, radius_1 = args.radius_1, k=args.k, 
+                                fs=args.fs,fc = args.fc, b = args.b, q = args.q, albedo = args.albedo, A_doppler = args.A_doppler,
+                                spots=  np.array(args.spots), omega_1=1.0, ldc_law_1 = ld_law,
+                                h1 = args.h1, h2 = args.h2, gdc_1 = args.gdc_1, SBR  = args.SBR, 
+                                light_3 = args.light_3, 
+                                E_tol = 1e-4, zp = args.zp, bounds=transit_model_bounds, J=args.J, 
+                                cadence=args.cadence, noversample=args.noversample)
+
+    ###########################################################################
+    #                    Initialse the GP kerne; if needed                    #
+    ###########################################################################
+    if args.gp : 
+        kernel = RotationTerm(
+            log_amp=args.log_amp,
+            log_timescale=args.log_timescale,
+            log_period=args.log_period,
+            log_factor=args.log_factor,
+            bounds=dict(
+                log_amp=(-20.0, 20),
+                log_timescale=(-20, 20.0),
+                log_period=(-20, 20.0),
+                log_factor=(-20, 20.0),
+            ),
+        )
+
+        kernel += terms.JitterTerm(
+            log_sigma=args.log_sigma,
+            bounds=[(-20, 20)],
+        )
+
+
+        gp = GP(kernel, mean=transit_model, fit_mean=True)
+        gp.compute(time, mag_err)
+
+    ###########################################################################
+    #               Convert fitpar names for gp compliance                    #
+    ###########################################################################
+    args.gp_fitpars = []
+    if args.gp:
+        for i in range(len(args.fitpars)):
+            if (args.fitpars[i] == 'log_amp') or (args.fitpars[i] == 'log_timescale') or (args.fitpars[i] == 'log_period') or (args.fitpars[i] == 'log_factor') :
+                    args.gp_fitpars.append('kernel:terms[0]:' + args.fitpars[i])
+            elif (args.fitpars[i] == 'log_sigma'):
+                    args.gp_fitpars.append('kernel:terms[1]:' + args.fitpars[i])
+            else : args.gp_fitpars.append('mean:'   + args.fitpars[i])
+
+    ###########################################################################
+    #               Show a trial step, if needed                              #
+    ###########################################################################
+    if args.trial:
+        plot_solution(suffix='Trial')
+      
+    ###########################################################################
+    #               Create the parameters                                     #
+    ###########################################################################
+    params = Parameters()
+    for i in range(len(args.fitpars)):
+        if args.fitpars[i] in ['period']:
+            params.add(args.fitpars[i], value=args.period,     min=args.period*0.99, max=args.period*1.01)
+        if args.fitpars[i] in ['t_zero']:
+            params.add(args.fitpars[i], value=args.t_zero, min=args.t_zero-0.1*args.period, max=args.t_zero+0.1*args.period)
+        elif args.fitpars[i] in ['radius_1', 'k']:
+            params.add(args.fitpars[i], value=float(eval('args.{:}'.format(args.fitpars[i]))),     min=0., max=0.5)
+        elif args.fitpars[i] in ['b']:
+            params.add(args.fitpars[i], value=float(eval('args.{:}'.format(args.fitpars[i]))),     min=0., max=1.5)
+            params.add('delta', value=args.b-0.5, vary=False , min=-0.5, max=1, expr='b-k') # constrain the limit b <= 1 + k
+        elif args.fitpars[i] in ['SBR', 'q']:
+            params.add(args.fitpars[i], value=float(eval('args.{:}'.format(args.fitpars[i]))),     min=0., max=1)
+        elif args.fitpars[i] in ['fs', 'fc']:
+            params.add(args.fitpars[i], value=float(eval('args.{:}'.format(args.fitpars[i]))),     min=-1, max=1)
+        elif args.fitpars[i] in ['h1', 'h2']:
+            mini = max(float(eval('args.{:}'.format(args.fitpars[i]))) - 0.1, 0.1)
+            maxi = min(float(eval('args.{:}'.format(args.fitpars[i]))) + 0.1, 0.9)
+            params.add(args.fitpars[i], value=float(eval('args.{:}'.format(args.fitpars[i]))),     min=mini, max=maxi)
+        elif args.fitpars[i] in ['log_sigma', 'log_amp', 'log_timescale', 'log_period']:
+            params.add(args.fitpars[i], value=float(eval('args.{:}'.format(args.fitpars[i]))),     min=-15, max=15)
+        else:
+            params.add(args.fitpars[i], value=float(eval('args.{:}'.format(args.fitpars[i]))) )
+            
+    # Define reference
+    t_zero_ref, period_ref = args.t_zero, args.period
+    ###########################################################################
+    #               Minimize with lmfit, if needed                            #
+    ###########################################################################
+    if args.lmfit:
+        if len(args.fitpars) == 0 : 
+            print('No fitpars specified')
+            exit()
+
+
+        
+        # Now create the minimizer
+        # residuals_lmfit_gp
+        if args.gp: mini = Minimizer(residuals_lmfit_gp, params, fcn_args=(time, mag, mag_err, t_zero_ref, period_ref, args.h1, args.h2, args.fitpars, args.gp_fitpars, False), nan_policy='propagate')
+        else: mini = Minimizer(residuals_lmfit, params,          fcn_args=(time, mag, mag_err, t_zero_ref, period_ref, args.h1, args.h2, args.fitpars, False), nan_policy='propagate')
+        
+        lmfit_minimize_result = mini.minimize()
+
+        print('LMFIT report')
+        print(row_delim)
+        printfuncs.report_fit(lmfit_minimize_result, min_correl=0.5)
+        print(row_delim)
+
+        # Now get the errors
+        if args.lmfit_error:
+            print('Uncertainties')
+            print(row_delim)
+            try : 
+                ci, trace = conf_interval(mini, lmfit_minimize_result, sigmas=[1, 2, 3], trace=True)
+                printfuncs.report_ci(ci)
+            except : print('Uncertainties could not be estimated')
+            print(row_delim)
+
+
+        # Now plot best solution
+        for i in range(len(args.fitpars)) : 
+            if args.gp: gp.set_parameter(args.gp_fitpars[i], lmfit_minimize_result.params[args.fitpars[i]].value)
+            if args.fitpars[i] not in ['log_sigma', 'log_amp', 'log_period', 'log_timescale'] : transit_model.set_parameter(args.fitpars[i], lmfit_minimize_result.params[args.fitpars[i]].value)
+
+        plot_solution(suffix='lmfit')
+
+
+    ###########################################################################
+    #               Emcee    with lmfit, if needed                            #
+    ###########################################################################
+    if args.emcee:
+        if len(args.fitpars) == 0 :
+            print('No fitpars specified')
+            exit()
+
+        # Generate theta depending if we've minimise first
+        if args.lmfit : 
+            theta = np.array([float(lmfit_minimize_result.params[args.fitpars[i]].value) for i in range(len(args.fitpars))]) #theta = np.array(list(lmfit_minimize_result.params.valuesdict().values()))
+            print(theta, args.fitpars)
+        else :          theta = np.array([float(eval('args.{:}'.format(args.fitpars[i]))) for i in range(len(args.fitpars))]) 
+
+        # Dimensions
+        ndim = len(theta)
+        nwalkers = 4*ndim 
+        
+        # Generate initial positions of Markov chains
+        p0 = theta + 1e-4* np.random.randn(nwalkers, ndim)
+
+        #Set up the backend, if needed
+        if args.backend:
+            if args.gp : filename = '{:}/{:}_emcee_output_gp.h5'.format(args.savepath, args.name)
+            else : filename = '{:}/{:}_emcee_output.h5'.format(args.savepath, args.name)
+            backend = emcee.backends.HDFBackend(filename)
+            backend.reset(nwalkers, ndim)
+        else : backend = None
+
+        #print(residuals_lmfit(theta, time, mag, mag_err, t_zero_ref, period_ref, args.h1, args.h2, args.fitpars, True))
+        
+        with Pool(int(args.threads)) as pool:
+            # Define the samplers
+            # residuals_lmfit_gp(pars, time, mag, mag_err, t_zero_ref, period_ref, theta_names, gp_theta_names, lnlike=False)
+            if args.gp : sampler = emcee.EnsembleSampler(nwalkers, ndim, residuals_lmfit_gp, args = (time, mag, mag_err, t_zero_ref, period_ref, args.h1, args.h2, args.fitpars, args.gp_fitpars, True), backend=backend, pool=pool, )#moves=[(emcee.moves.DEMove(), 0.8), (emcee.moves.DESnookerMove(), 0.2),]) 
+            else: sampler = emcee.EnsembleSampler(nwalkers, ndim, residuals_lmfit,           args = (time, mag, mag_err, t_zero_ref, period_ref, args.h1, args.h2, args.fitpars, True),    backend=backend, pool=pool, )#moves=[(emcee.moves.DEMove(), 0.8), (emcee.moves.DESnookerMove(), 0.2),])
+
+            # run the sampler
+            sampler.run_mcmc(p0, args.emcee_steps, progress=True) 
+
+
+        samples = sampler.get_chain(flat=True, discard=args.emcee_burn_in)
+        logs = sampler.get_log_prob(flat=True, discard=args.emcee_burn_in) 
+
+        best_idx = np.argmax(logs) 
+        best_step = samples[best_idx] 
+        low_err = best_step - np.percentile(samples, 16, axis=0)
+        high_err = np.percentile(samples, 84, axis=0) - best_step
+
+        fig_corner = corner.corner(samples, labels=args.fitpars, truths = best_step)
+
+        # Now plot best solution
+        for i in range(len(args.fitpars)) : 
+            if args.gp: gp.set_parameter(args.gp_fitpars[i], best_step[i])
+            if args.fitpars[i] not in ['log_sigma', 'log_amp', 'log_period', 'log_timescale'] : transit_model.set_parameter(args.fitpars[i], best_step[i])
+
+        plot_solution(suffix='EMCEE')
+
+        plt.show()

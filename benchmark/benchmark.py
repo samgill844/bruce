@@ -115,4 +115,6 @@ plt.subplots_adjust(left = 0.08)
 plt.subplots_adjust(bottom = 0.15)
 
 plt.savefig('scale_test.png')
+
+
 plt.show()

@@ -24,6 +24,10 @@ from matplotlib.patches import Wedge, Ellipse
 from matplotlib.collections import PatchCollection
 np.warnings.filterwarnings('ignore')
 
+from lmfit import minimize, Parameters, Minimizer, printfuncs, conf_interval
+plt.rcParams["font.family"] = "Times New Roman"
+
+
 ###########################################################################
 #                              Constants                                  #
 ###########################################################################
@@ -127,8 +131,8 @@ def phaser(time, t_zero, period) : return ((time - t_zero)/period) - np.floor((t
 transit_model_bounds = dict(radius_1 = (0, 0.9), k = (0, 0.9), b = (0,2), fs = (-1,1), fc = (-1,1), SBR = (0,1), light3 = (0, None), J = (0, None))
 
 class transitmodel(Model):
-    parameter_names = ("t_zero", "period", "radius_1", "k", "fs", "fc", "b", "q", "albedo", "alpha_doppler",
-                        "K1", "spots", "omega_1", "ldc_law_1","h1", "h2", "gdc_1",
+    parameter_names = ("t_zero", "period", "radius_1", "k", "fs", "fc", "b", "q", "albedo", "A_doppler",
+                        "spots", "omega_1", "ldc_law_1","h1", "h2", "gdc_1",
                         "SBR", "light_3", "E_tol" , "zp", "J" , "cadence", "noversample")
 
     def get_value(self, t):
@@ -138,7 +142,7 @@ class transitmodel(Model):
                 radius_1 = self.radius_1, k=self.k, 
                 fs = self.fs, fc = self.fc, 
                 q=self.q, albedo = self.albedo,
-                alpha_doppler=self.alpha_doppler, K1 = self.K1,
+                A_doppler=self.A_doppler,
                 spots = np.array(self.spots), omega_1=self.omega_1,
                 incl = 180*np.arccos(self.radius_1*self.b)/np.pi,
                 ld_law_1=int(self.ldc_law_1), ldc_1_1 = ldc_1_1, ldc_1_2 = ldc_1_2, gdc_1 = self.gdc_1,
@@ -246,6 +250,15 @@ def lnlike_gp(theta, time, mag, mag_err, t_zero_ref, period_ref, theta_names,  h
 
 
 
+def residuals_lmfit(pars, time, mag, mag_err, t_zero_ref, period_ref, theta_names):
+    # First, set the attributes 
+    for i in range(len(theta_names)) : transit_model.set_parameter(theta_names[i], float(pars[theta_names[i]]))
+
+    # Return residuals
+    return (mag - transit_model.get_value(time))**2 / (mag_err**2)
+
+
+
 
 
 ###########################################################################
@@ -346,14 +359,9 @@ parser.add_argument('-n',
                 default=0., type=float)
 
 parser.add_argument('-o', 
-                '--alpha_doppler',
-                help='The alpha_doppler parameter.',
+                '--A_doppler',
+                help='The A_doppler parameter.',
                 default=0., type=float)
-
-parser.add_argument('-p', 
-                '--K1',
-                help='The semi-amplitude [km/s] of radial velocity (used for ellipsoidal variation and rv) [default 10].',
-                default=10, type=float)
 
 parser.add_argument('-q', 
                 '--light_3',
@@ -573,8 +581,7 @@ if __name__ == "__main__":
             print('\t\t   Spot contrast ratio (a=Is/Ip).     = {:}'.format(args.spots[4*i + 3])) 
     print('\tq      : {:}'.format(args.q)) 
     print('\talbedo : {:}'.format(args.albedo)) 
-    print('\talpha  : {:}'.format(args.alpha_doppler)) 
-    print('\tK1     : {:}'.format(args.K1)) 
+    print('\tA_doppler  : {:}'.format(args.A_doppler)) 
     print('\tfs     : {:}'.format(args.fs)) 
     print('\tfc    : {:}'.format(args.fc)) 
     print('\tomega_1    : {:}'.format(args.omega_1)) 
@@ -601,8 +608,8 @@ if __name__ == "__main__":
     #                              Initialse the transit model                #
     ###########################################################################
     transit_model = transitmodel(t_zero = args.t_zero, period = args.period, radius_1 = args.radius_1, k=args.k, 
-                                fs=args.fs,fc = args.fc, b = args.b, q = args.q, albedo = args.albedo, alpha_doppler = args.alpha_doppler,
-                                K1 = args.K1, spots=  np.array(args.spots), omega_1=1.0, ldc_law_1 = ld_law,
+                                fs=args.fs,fc = args.fc, b = args.b, q = args.q, albedo = args.albedo, A_doppler = args.A_doppler,
+                                spots=  np.array(args.spots), omega_1=1.0, ldc_law_1 = ld_law,
                                 h1 = args.h1, h2 = args.h2, gdc_1 = args.gdc_1, SBR  = args.SBR, 
                                 light_3 = args.light_3, 
                                 E_tol = 1e-4, zp = args.zp, bounds=transit_model_bounds, J=args.J, 
@@ -689,8 +696,7 @@ if __name__ == "__main__":
             phase_time = np.linspace(-0.2,1,10000)
             #ax2.plot(phase_time, transit_model.get_value(phase_time), 'r')
             ax3.fill_between(phase_time, transit_model.get_value(phase_time)+np.median(std), transit_model.get_value(phase_time)-np.median(std), color=color, alpha=0.3, edgecolor="none")
-            try : centre = find_secondary_phase(args.fs, args.fc, np.arccos(args.b*args.radius_1))
-            except : centre = 0.5
+            centre = find_secondary_phase(args.fs, args.fc)
             ax3.set_xlim(centre - width, centre+width)
             ax3.set_ylabel('Mag')
             ax3.set_xlabel('Phase')
@@ -746,8 +752,7 @@ if __name__ == "__main__":
             phase_time = np.linspace(-0.2,1,10000)
             ax3.scatter(phase, mag,   c='k', s=10, alpha=args.plot_alpha)
             ax3.scatter(phase-1, mag, c='k', s=10, alpha=args.plot_alpha)
-            try: centre = find_secondary_phase(args.fs, args.fc, np.arccos(args.b*args.radius_1))
-            except : centre = 0.5
+            centre = find_secondary_phase(args.fs, args.fc)
             ax3.set_xlim(centre - width, centre+width)
             ax3.plot(phase_time, transit_model.get_value(phase_time), color)
             ax3.set_ylabel('Mag')
@@ -947,8 +952,7 @@ if __name__ == "__main__":
             phase_time = np.linspace(-0.2,1,10000)
             #ax2.plot(phase_time, transit_model.get_value(phase_time), 'r')
             ax3.fill_between(phase_time, transit_model.get_value(phase_time)+np.median(std), transit_model.get_value(phase_time)-np.median(std), color=color, alpha=0.3, edgecolor="none")
-            try : centre = find_secondary_phase(gp.get_parameter('mean:fs'), gp.get_parameter('mean:fc'), np.arccos(gp.get_parameter('mean:b')*gp.get_parameter('mean:radius_1')))
-            except : centre = 0.5
+            centre = find_secondary_phase(gp.get_parameter('mean:fs'), gp.get_parameter('mean:fc'))
                 
             ax3.set_xlim(centre - width, centre+width)
 
@@ -1014,11 +1018,9 @@ if __name__ == "__main__":
             ax2.set_ylabel('Mag')
 
             phase_time = np.linspace(-0.2,1,10000)
-            try : centre = find_secondary_phase(transit_model.get_parameter('fs'), transit_model.get_parameter('fc'), np.arccos(transit_model.get_parameter('b')*transit_model.get_parameter('radius_1')))
-            except : centre = 0.5 
+            centre = find_secondary_phase(transit_model.get_parameter('fs'), transit_model.get_parameter('fc'))
             ax3.scatter(phase, mag,   c='k', s=10, alpha=args.plot_alpha)
             ax3.scatter(phase-1, mag, c='k', s=10, alpha=args.plot_alpha)
-            print(width, centre - width, centre+width)
             ax3.set_xlim(centre - width, centre+width)
             ax3.plot(phase_time, transit_model.get_value(phase_time), color)
             ax3.set_ylabel('Mag')
@@ -1294,3 +1296,139 @@ if __name__ == "__main__":
                 plt.savefig('{:}/{:}_orbit.png'.format(args.savepath, args.name))
             plt.close()
 
+
+    if args.minimize:
+
+        print('\n\n########################################')
+        print('#            LMFIT minimisation            #')
+        print('########################################')
+
+        # Define reference
+        t_zero_ref, period_ref = args.t_zero, args.period
+
+        # Define the parameters
+        params = Parameters()
+        for i in range(len(args.fitpars)):
+            if args.fitpars[i] in ['t_zero', 'period']:
+                params.add(args.fitpars[i], value=float(eval('args.{:}'.format(args.fitpars[i]))),     min=float(eval('args.{:}'.format(args.fitpars[i])))-0.1, max=float(eval('args.{:}'.format(args.fitpars[i])))+0.1)
+            elif args.fitpars[i] in ['radius_1', 'k']:
+                params.add(args.fitpars[i], value=float(eval('args.{:}'.format(args.fitpars[i]))),     min=0., max=0.5)
+            elif args.fitpars[i] in ['b']:
+                params.add(args.fitpars[i], value=float(eval('args.{:}'.format(args.fitpars[i]))),     min=0., max=1.5)
+                params.add('delta', value=args.b-0.5, vary=False , min=-0.5, max=1, expr='b-k') # constrain the limit b <= 1 + k
+            elif args.fitpars[i] in ['SBR', 'q']:
+                params.add(args.fitpars[i], value=float(eval('args.{:}'.format(args.fitpars[i]))),     min=0., max=1)
+            elif args.fitpars[i] in ['fs', 'fc']:
+                params.add(args.fitpars[i], value=float(eval('args.{:}'.format(args.fitpars[i]))),     min=-1, max=1)
+            else:
+                params.add(args.fitpars[i], value=float(eval('args.{:}'.format(args.fitpars[i]))) )
+
+
+        # Now create the minimizer
+        mini = Minimizer(residuals_lmfit, params, fcn_args=(time, mag, mag_err, t_zero_ref, period_ref, args.fitpars))
+        out = mini.minimize()
+
+        print('\nFit report')
+        print('###############################################################')
+        printfuncs.report_fit(out, min_correl=0.5)
+
+        # Now get the errors
+        print('\nUncertainties')
+        print('###############################################################')
+        #ci, trace = conf_interval(mini, out, sigmas=[1, 2, 3], trace=True)
+        #printfuncs.report_ci(ci)
+
+
+
+
+
+
+
+
+
+
+        best_step = [float(out.params[i]) for i in args.fitpars]
+
+
+        # First, set the parameter
+        for i in range(len(args.fitpars)):
+            transit_model.set_parameter(args.fitpars[i], best_step[i]) 
+
+
+        phase = phaser(time ,args.t_zero, args.period) 
+        phase_time = np.linspace(-0.2,0.8, 10000)
+
+        # First, plot the model
+        fig = plt.figure(figsize=(15,10))
+        spec = gridspec.GridSpec(ncols=2, nrows=3, figure=fig)
+        ax1 = fig.add_subplot(spec[0, :])
+        ax2 = fig.add_subplot(spec[1, 0])
+        ax3 = fig.add_subplot(spec[1, 1])
+
+
+        ax1.scatter(time-time[0], mag, c='k', s=10, alpha=args.plot_alpha)
+        ax1.invert_yaxis()
+        ax1.set_ylabel('Mag')
+        ax1.set_xlabel('JD -{:}'.format(time[0]))
+        #ax1.set_title('$\\chi^2_r$ : {:.6}'.format(-2*(gp.log_likelihood(mag) + gp.log_prior())/len(time)))
+
+        # Now residuals
+        ax4 = fig.add_subplot(spec[2, 0])
+        ax5 = fig.add_subplot(spec[2, 1])
+
+        ax4.scatter(phase, mag - transit_model.get_value(time),   c='k', s=10, alpha=args.plot_alpha)
+        ax4.scatter(phase-1, mag - transit_model.get_value(time),   c='k', s=10, alpha=args.plot_alpha)
+        ax5.scatter(phase, mag - transit_model.get_value(time),   c='k', s=10, alpha=args.plot_alpha)
+        ax5.scatter(phase-1, mag - transit_model.get_value(time),   c='k', s=10, alpha=args.plot_alpha)
+        resid_std = np.std(mag - transit_model.get_value(time))
+
+
+
+        transit_model.set_parameter('t_zero', 0.0)
+        transit_model.set_parameter('period', 1.0)
+
+        phase = phaser(time ,args.t_zero, args.period) 
+        phase_time = np.linspace(-0.2,0.8, 10000)
+        ax2.scatter(phase, mag,   c='k', s=10, alpha=args.plot_alpha)
+        ax2.scatter(phase-1, mag, c='k', s=10, alpha=args.plot_alpha)
+        ax2.plot(phase_time, transit_model.get_value(phase_time), color)
+        width = transit_width(transit_model.get_parameter('radius_1'), transit_model.get_parameter('k'),transit_model.get_parameter('b'), P=1)
+        if args.q != 0 : ax2.set_xlim(-0.2,0.8)
+        else : ax2.set_xlim(-width,width)
+        ax2.set_xlabel('Phase')
+        ax2.set_ylabel('Mag')
+
+        phase_time = np.linspace(-0.2,1,10000)
+        centre = find_secondary_phase(transit_model.get_parameter('fs'), transit_model.get_parameter('fc'))
+        ax3.scatter(phase, mag,   c='k', s=10, alpha=args.plot_alpha)
+        ax3.scatter(phase-1, mag, c='k', s=10, alpha=args.plot_alpha)
+        ax3.set_xlim(centre - width, centre+width)
+        ax3.plot(phase_time, transit_model.get_value(phase_time), color)
+        ax3.set_ylabel('Mag')
+        ax3.set_xlabel('Phase')
+
+        # For third light
+        depth = np.max(transit_model.get_value(phase_time)) - np.min(transit_model.get_value(phase_time)) # in mag
+        ax2.set_ylim(transit_model.get_parameter('zp') + 1.5*depth,transit_model.get_parameter('zp') -0.5*depth)
+        ax3.set_ylim(transit_model.get_parameter('zp') + 1.5*depth,transit_model.get_parameter('zp') -0.5*depth)
+
+        centre = 0.
+        ax4.set_xlim(centre - width, centre+width)
+        centre = 0.5
+        ax5.set_xlim(centre - width, centre+width)
+        ax4.set_ylim(-3*resid_std, 3*resid_std)
+        ax5.set_ylim(-3*resid_std, 3*resid_std)
+        ax4.axhline(0, ls='--', color=color)
+        ax5.axhline(0, ls='--', color=color)
+        ax4.set_ylabel('O-C [Mag]')
+        ax5.set_ylabel('O-C [Mag]')
+        ax4.set_xlabel('Phase')
+        ax5.set_xlabel('Phase')
+
+
+        #plt.title('$\\chi^2_r$ : {:.6}'.format(-2*transit_model.log_likelihood(time, mag, mag_err)/len(time)))
+        plt.tight_layout()
+        plt.savefig('{:}/{:}_best.pdf'.format(args.savepath, args.name))
+        plt.savefig('{:}/{:}_best.png'.format(args.savepath, args.name))
+        plt.show()
+        plt.close()

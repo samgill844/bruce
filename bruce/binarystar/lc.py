@@ -109,9 +109,7 @@ def _lc_engine(time, zp,
             else:
                 if (A_g > 0) : F_reflection *= frac_secondary(z, k ,1.)
                 if (SBR>0.) :
-                    if (ld_law_1!=-1) : 
-                        F_transit =  Flux_drop_uniform(z, k, SBR) # Secondary eclipse
-                        # We also need to remove a fraction of reflected flux 
+                    if (ld_law_1!=-1) : F_transit =  -SBR*k**2*(1-frac_secondary(z, k ,1.)) # Secondary eclipse
                     else : F_transit = -1.
 
 
@@ -120,7 +118,7 @@ def _lc_engine(time, zp,
         #print(F_transit)
         # That's all from the star, so let's account for third light 
         if (light_3 > 0.0) : model = model/(1. + light_3) + (1.-1.0/(1. + light_3)) # third light
-
+        #model = F_ellipsoidal
         # Now return model
         return model
 

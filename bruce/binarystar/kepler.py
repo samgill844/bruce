@@ -260,6 +260,7 @@ def z_func(time, e=0, w=np.pi/2, period=1,  t_zero=0, incl=np.pi/2, E_tol=1e-5, 
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 
+'''
 def find_secondary_phase(fs, fc, incl, radius_1=0.2):
     t = np.linspace(0,1,10000)
     e = fs**2 + fc**2
@@ -274,3 +275,11 @@ def find_secondary_phase(fs, fc, incl, radius_1=0.2):
     return t[500:9500][peaks][0]
     #plt.axvline(t[peaks])
     #plt.show()
+'''
+
+@numba.njit
+def find_secondary_phase(fs, fc):
+    w = math.atan2(fs,fc)
+    e = fs**2 + fc**2
+    Phi = math.pi + 2*math.atan((e*math.cos(w)) / math.sqrt(1 - e**2))
+    return (Phi - math.sin(Phi)) / (2*math.pi)

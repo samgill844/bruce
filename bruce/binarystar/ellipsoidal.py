@@ -20,9 +20,12 @@ def Fellipsoidal(phase, q, radius_1, incl, u, y):
     # Harmonic coeefs 
     f1 = 3*alpha1*radius_1*(5*math.pow(math.sin(incl),2) - 4)/math.sin(incl)
     f2 = 5*alpha1*radius_1*math.sin(incl)
+    phase = phase + math.pi/2
 
     # Now return the variation 
-    return -Ae*( math.cos(2*phase)    +    f1*math.cos(phase)      +      f2*math.cos(3*phase) ) 
+    #return -Ae*( math.cos(2*phase)    +    f1*math.cos(phase)      +      f2*math.cos(3*phase) )  + Ae
+    #return -Ae*( math.cos(2*phase)    -    f1*math.cos(phase)      +      f2*math.cos(3*phase) )  + Ae
+    return -Ae*( -math.cos(2*phase)    +    f1*math.cos(phase)      -      f2*math.cos(3*phase) )  + Ae
 
 '''
 import numpy as np 
