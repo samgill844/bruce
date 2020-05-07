@@ -34,7 +34,7 @@ setup(
              'Utils/quickphot/quickphotcube',
              'Utils/tic2wasp/tic2wasp',
              'Utils/monofind/monofind',
-             'Utils/monofind/monofindSGE',
+             'Utils/monofind/monofindSGE', 'Utils/monofind/monofind_submit', 'Utils/monofind/monofindvet',
              'Utils/monofind/vet',
              'Utils/spupnic/spupnic',
              'Utils/bls/bls'],

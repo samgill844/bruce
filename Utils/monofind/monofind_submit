@@ -1,0 +1,67 @@
+#!/home/sam/anaconda3/bin/python
+
+import numpy as np
+import os
+from astropy.table import Table
+import argparse
+
+###########################################################################
+#                        Argument parser                                  #
+###########################################################################
+
+# Argument parser
+description = '''Monifind SGE submit'''
+parser = argparse.ArgumentParser('monofind submit', description=description)
+
+
+parser.add_argument('-a', 
+                    '--sector',
+                    help='The sector', 
+                    default=1, type=int)
+
+parser.add_argument('-b', 
+                    '--chip_id',
+                    help='The sector', 
+                    default='1-1', type=str)
+
+parser.add_argument('-c', 
+                    '--nperjob',
+                    help='Number to run per SGE job', 
+                    default=10000, type=int)
+
+
+if __name__=='__main__':
+    # Parse the arguments
+    args = parser.parse_args()
+
+    # Get te list of tics 
+    t = Table.read('/tess/photometry/tessFFIextract/sources/S{:02}_{:}.fits'.format(args.sector, args.chip_id))
+    tics = np.array(['TIC-{:.0f}.fits'.format(i) for i in t['ID']])
+
+    # Now split the tics
+    njobs = int(np.ceil(len(tics)/args.nperjob))
+    tics = np.array_split(tics, njobs)
+
+    for i in range(len(tics)):
+        # First, write out the list
+        small_list_file = '/tess/photometry/monotransit_bls/lists/S{:02}_{:}_{:}'.format(args.sector, args.chip_id, i+1)
+        f = open(small_list_file, 'w+')
+        for j in range(len(tics[i])) : f.write('{:}\n'.format(tics[i][j]))
+        f.close()
+
+        # Now make the job file
+        job_file = '/tess/photometry/monotransit_bls/jobs/S{:02}_{:}_{:}.sh'.format(args.sector, args.chip_id, i+1)
+        f = open(job_file, 'w+')
+
+        # Write the log and error file
+        f.write('#$ -N MF_S{:02}_{:}_{:}'.format(args.sector, args.chip_id, i+1))
+        f.write('\n#$ -o /tess/photometry/monotransit_bls/logs/S{:02}_{:}_{:}'.format(args.sector, args.chip_id, i+1))
+        f.write('\n#$ -e /tess/photometry/monotransit_bls/logs/S{:02}_{:}_{:}'.format(args.sector, args.chip_id, i+1))
+
+        # Copy the mask file to here
+        cmd = '/home/u1870241/anaconda3/bin/monofindSGE {:} --threads $((NSLOTS*2)) --HOME_PATH /tess/photometry/monotransit_bls --lightcurve_file_path /tess/photometry/tessFFIextract/lightcurves/S{:02} --saveplace_monofind /tess/photometry/monotransit_bls/monofind/S{:02}_{:} --monofind_mask /tess/photometry/monotransit_bls/masks/S{:02}_mask.fits'.format(small_list_file, args.sector, args.sector, args.chip_id, args.sector)
+        f.write('\n\n{:}'.format(cmd))
+        f.close()
+        #print(cmd)
+        os.system('qsub -p -200 -pe core[24]\* 24-40 {:} > .tmp'.format(job_file))
+

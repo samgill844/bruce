@@ -104,7 +104,7 @@ monofind = '/home/u1870241/anaconda3/bin/monofind'
 bls = '/home/u1870241/anaconda3/bin/bls'
 
 def func(i): 
-    cmd = '{:} {:} --fits --flatten --flatten_kernel 14 --fit_transit --threads 4 --saveplace {:}  --write_to_file {:} --name {:} --mask {:} --fitsapp {:} --ra {:} --dec {:} --mag {:}'.format(monofind, '{:}/TIC-{:}.fits'.format(args.lightcurve_file_path, tics[i]), args.saveplace_monofind , args.write_to_file_monofind, 'TIC-{:}'.format(tics[i]), args.monofind_mask, app, R1[i][0], R1[i][1], R1[i][2] )
+    cmd = '{:} {:} --fits --flatten --flatten_kernel 11 --fit_transit --threads 4 --saveplace {:}  --write_to_file {:} --name {:} --mask {:} --fitsapp {:} --ra {:} --dec {:} --mag {:} --check_asteroid'.format(monofind, '{:}/TIC-{:}.fits'.format(args.lightcurve_file_path, tics[i]), args.saveplace_monofind , args.write_to_file_monofind, 'TIC-{:}'.format(tics[i]), args.monofind_mask, app, R1[i][0], R1[i][1], R1[i][2] )
     if (R1[i][3]==-1) and (R1[i][4]!=-1):
         cmd += ' --JH {:} --JHfile /home/u1870241/COLORS.csv'.format(R1[i][4]) # Use JHK colors
     else:
@@ -112,7 +112,7 @@ def func(i):
     os.system(cmd)
 
 
-    cmd = '{:} {:} --fits --flatten --flatten_kernel 14 --saveplace {:}  --write_to_file {:} --name {:} --mask {:} --fitsapp {:} --ra {:} --dec {:} --mag {:} --sde 40 --fit'.format(bls, '{:}/TIC-{:}.fits'.format(args.lightcurve_file_path, tics[i]), args.saveplace_monofind , args.write_to_file_monofind + '_BLS', 'TIC-{:}'.format(tics[i]), args.monofind_mask, app, R1[i][0], R1[i][1], R1[i][2] )
+    cmd = '{:} {:} --fits --flatten --flatten_kernel 11 --saveplace {:}  --write_to_file {:} --name {:} --mask {:} --fitsapp {:} --ra {:} --dec {:} --mag {:} --sde 40 --fit'.format(bls, '{:}/TIC-{:}.fits'.format(args.lightcurve_file_path, tics[i]), args.saveplace_monofind , args.write_to_file_monofind + '_BLS', 'TIC-{:}'.format(tics[i]), args.monofind_mask, app, R1[i][0], R1[i][1], R1[i][2] )
     if (R1[i][3]==-1) and (R1[i][4]!=-1):
         cmd += ' --JH {:} --JHfile /home/u1870241/COLORS.csv'.format(R1[i][4]) # Use JHK colors
     else:
@@ -131,7 +131,7 @@ if __name__=="__main__":
     while True:
         line = f.readline()
         if not line : break
-        try : tics.append(int(line))
+        try : tics.append(int(line.split('.')[0].split('-')[1] ))
         except : pass
 
     R1 = np.zeros((len(tics), 5) )
@@ -142,6 +142,9 @@ if __name__=="__main__":
         try : R1[i]  = get_R1_from_tic(tics[i])
         except : R1[i] = np.array([0.,0.,0.,-1.-1])
 
+    # Now make sure saveplace exists 
+    os.system('mkdir -p {:}'.format(args.saveplace_monofind))
+    
     # Now create the pool 
     print('Spawning pool')
     pool = Pool(args.threads)
