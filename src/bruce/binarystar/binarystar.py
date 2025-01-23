@@ -1,6 +1,19 @@
 import bruce_c, numpy as np
 
-def lc(t = np.linspace(0,1,100),flux=None, flux_err=None,
+def transit_width(radius_1, k, b, period=1.):
+    """
+    Total ciurcular transit duration.
+    See equation (3) from Seager and Malen-Ornelas, 2003ApJ...585.1038S.
+    :param radius_1: R_star/a
+    :param k: R_planet/R_star
+    :param b: impact parameter = a.cos(i)/R_star
+    :param P: orbital period (optional, default P=1)
+    :returns: Total transit duration in the same units as P.
+    """
+    return  period*np.arcsin(radius_1*np.sqrt( ((1+k)**2-b**2) / (1-b**2*radius_1**2) ))/np.pi
+
+
+def lc(t = np.linspace(-0.2,0.2,100),flux=None, flux_err=None,
         t_zero=0., period = 1.,
         radius_1=0.2, k = 0.2, incl=np.pi/2,
         e=0., w = np.pi/2.,
@@ -8,8 +21,8 @@ def lc(t = np.linspace(0,1,100),flux=None, flux_err=None,
         cadence=0, noversample=10,
         light_3=0.,
         ld_law = 2,
-        accurate_tp=0,
-        jitter=0., offset=1):
+        accurate_tp=1,
+        jitter=0., offset=0):
     '''
     Calculate the light curve for a given set of parameters. 
     If flux is None, returns the light curve. 
@@ -47,7 +60,7 @@ def lc(t = np.linspace(0,1,100),flux=None, flux_err=None,
         else:
             log-likelihood (double)
         '''
-    
+
     if flux is None:
         return bruce_c.lc(t, 
                 t_zero, period, 
@@ -69,3 +82,54 @@ def lc(t = np.linspace(0,1,100),flux=None, flux_err=None,
                 ld_law, 
                 accurate_tp,
                 jitter, offset)
+    
+
+
+def rv1(t = np.linspace(0,1,100),rv=None, rv_err=None,
+        t_zero=  0., period = 1.,
+        K1 = 1., e = 0.,  w = np.pi / 2.,
+        V0 = 0., incl = np.pi / 2.,
+        accurate_tp=1,
+        jitter=0., offset=0):
+    if rv is None:
+        return bruce_c.rv1(t,
+                           t_zero, period, 
+                           K1, e, w,
+                           incl,
+                           V0,
+                           accurate_tp)
+    
+    else:
+        return bruce_c.rv1_loglike(t,rv, rv_err,
+                           t_zero, period, 
+                           K1, e, w,
+                           incl,
+                           V0,
+                           accurate_tp,
+                           offset, jitter) 
+    
+
+def rv2(t = np.linspace(0,1,100),rv1=None, rv1_err=None,rv2=None, rv2_err=None,
+        t_zero=  0., period = 1.,
+        K1 = 1., K2=1.,
+        e = 0.,  w = np.pi / 2.,
+        V0 = 0., incl = np.pi / 2.,
+        accurate_tp=1,
+        jitter=0., offset=0):
+    if rv1 is None:
+        return bruce_c.rv2(t,
+                           t_zero, period, 
+                           K1,K2,
+                           e, w,
+                           incl,
+                           V0,
+                           accurate_tp)    
+    else:
+        return bruce_c.rv2_loglike(t, rv1, rv2, rv1_err, rv2_err,
+                           t_zero, period, 
+                           K1,K2,
+                           e, w,
+                           incl,
+                           V0,
+                           accurate_tp,
+                           offset, jitter) 

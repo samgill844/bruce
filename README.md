@@ -16,4 +16,92 @@ Most functions in this package depend on a numpy array as an input and are writt
 ```bash
 export OMP_NUM_THREADS=12
 ```
+<img src="images/binary_model_test.png" width="80%" alt="Bruce the dog"/>
 
+Only a few functions exposed to use, but should be everything needed to model a binary star/exoplanet system. Lets star with generating a lightcurve model which is wrapped into one call.
+```python
+bruce.binarystar.lc(t = np.linspace(-0.2,0.2,100),flux=None, flux_err=None,
+        t_zero=0., period = 1.,
+        radius_1=0.2, k = 0.2, incl=np.pi/2,
+        e=0., w = np.pi/2.,
+        c = 0.7, alpha = 0.4,
+        cadence=0, noversample=10,
+        light_3=0.,
+        ld_law = 2,
+        accurate_tp=0,
+        jitter=0., offset=0)
+```
+If flux and flux_err are provided, the log-likliehood is returned instead of the lightcurve model. The parameters jitter allows the user to add additional uncertainty in quadrature to flux_err while offset removes an arbritrary large constant if set to 1.  This function exploits OpenMP to calcualate/evaluate the model faster. It's much faster to call this function with t, flux, and flux_err to get the log-likliehood than getting the model and calculating it seperately. Note also that you can specify the cadence (in days) which will cadence smear the model, if required. Next, we can look at radial velocities:
+```python
+bruce.binarystar.rv1(t = np.linspace(0,1,100),rv=None, rv_err=None,
+        t_zero=  0., period = 1.,
+        K1 = 1., e = 0.,  w = np.pi / 2.,
+        V0 = 0., incl = np.pi / 2.,
+        accurate_tp=0,
+        jitter=0., offset=0)
+```
+This provides the spectroscopic reflex motion of the primary star, normalised in units of the semi-amplitude, K1. Like the lc call, if data is provided through rv and rv_err, a log-likliehood value is returned. If double-lined binaries are your game, the spectroscopic reflex motion of the secondary can easily calculated as the true anomaly for the primary star is that of the secondary plus pi. We provide utility to do this:
+```python
+rv2(t = np.linspace(0,1,100),rv1=None, rv1_err=None,rv2=None, rv2_err=None,
+        t_zero=  0., period = 1.,
+        K1 = 1., K2=1.,
+        e = 0.,  w = np.pi / 2.,
+        V0 = 0., incl = np.pi / 2.,
+        accurate_tp=0,
+        jitter=0., offset=0)
+``` 
+When rv1 and rv2 is not given, the RV models are returned for the primary and secondary. When data is given, the log-likliehood is returned like lc and rv1. 
+
+------------------
+## Template Matching
+
+One of the main uses for bruce is to search for additional transits in additional photometric data where you know the transit shape from an original set (e.g. TESS signle transit candidate). We have developed an algorithm to do just this (Gill+2025 in prep) and can be easily achieved like this
+```python
+time_trial, DeltaL = bruce.template_match.template_match_lightcurve(t, f, fe, w, period = period,
+        radius_1=0.03, k = 0.05, incl=np.pi/2,
+        e=0., w = np.pi/2.,
+        c = 0.7, alpha = 0.4,
+        cadence=5, noversample=10,
+        light_3=0.,
+        ld_law = -2,
+        accurate_tp=1,
+		jitter=0., offset=0,
+		time_step=None, time_trial=None)
+```
+By simple passing the data, along with parameters used to fit a single transit (period, R1/a, R2/R1, and incl) you can search each possible epoch for signs of a transit. In return, you get time_trial (the epochs we try) and DeltaL, the delta log-likliehood of a match at this position. Epochs where DeltaL > 0 mean the transit model is favoured over a null model. The normalisation model, w, can be whatever you please but we provide a median filter and a convolution filter to use if you so wish. 
+```python
+w = bruce.data.median_filter(t,f, 0.2)
+w = bruce.data.convolve_1d(t,w,0.2) # Should you wish to smooth the output
+```
+The result can be pretty cool.
+<img src="images/template_match.png" width="80%" alt="Template matching"/>
+
+------------------
+## Data processing
+
+We provide a small few packages to help process data. The first is  to efficiently bin data given a bin width. By making a call like this,
+```python
+time_binned, flux_binned, flux_err_binned = bruce.data_processing.bin_data(time, flux, bin_size=0.5/24/3)
+```
+We get fast and efficient binned data.
+<img src="images/binning_test.png" width="80%" alt="Bruce the dog"/></a>
+We also provide functions to normalise and flatten data. I provide a median filter and a 1-d convolution that works in time, not data index:
+```python
+flux_median_filter_10min = bruce.data_processing.median_filter(time, flux, bin_size=0.5/24/3)
+flux_convolved_10min = bruce.data_processing.convolve_1d(time, flux, bin_size=0.5/24/3)
+```
+
+-----------------
+
+## Performance
+
+Most functions are expecting numpy arrays of type np.float64. If not, they will be re-cast in the C-code which ultimately yields a performance penalty. Take this example:
+```python
+
+```
+
+
+
+
+
+Additionally, what you set for OMP_NUM_THREADS will also 

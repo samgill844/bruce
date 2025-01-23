@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
-
 #include <math.h>
+#include <omp.h>
 #define N_BIN_MAX 10000
 #define MAX_WINDOW_SIZE 1024
 
@@ -12,7 +12,6 @@ double bruce_loglike(const double y, const double yerr, const double model,
     double loglikeliehood = -0.5*((y - model)*(y - model)*wt);
     if (offset==1) loglikeliehood -= 0.5*log(wt);
     return loglikeliehood;
-    //return -0.5*(y-model)*(y-model)/(yerr*yerr);
 }
 
 
@@ -529,8 +528,8 @@ double __lc (const double time,
     if (f>0)
     {
       if ((ld_law==-2) &&  (fabs((time - t_zero) / period) < 0.5)) F_transit = flux_drop_analytical_power_2(z, k, c, alpha, 0.001);
-      if (ld_law==-1) F_transit = -k;
-      if (ld_law==0) F_transit = flux_drop_analytical_uniform(z, k, -99);
+    //   if (ld_law==-1) F_transit = -k;
+    //   if (ld_law==0) F_transit = flux_drop_analytical_uniform(z, k, -99);
       //if (ld_law==1) F_transit = flux_drop_annulus(z, k, 1, 7, c, 4000, 0, 0);
       if (ld_law==2) F_transit = flux_drop_analytical_power_2(z, k, c, alpha, 0.001);
     }
@@ -557,6 +556,7 @@ double _lc (const double time,
     const int ld_law,
     const int accurate_tp)
 {
+  //printf("t_zero call %f\n", t_zero);
   if (cadence>0)
   {
     double dr = (cadence/2) / ((noversample-1)/2);
@@ -754,7 +754,7 @@ void check_proximity_of_timestamps(const double *x_trial, const double *x_ref, c
 
 void template_match(
     const double *time_trial_g, double *DeltaL_trial_g, 
-    const double *time_g, double *flux_g, double *flux_err_g,  double *normalisation_model, 
+    const double *time_g, const double *flux_g, const double *flux_err_g,  const double *normalisation_model, 
     const int size_trial, const int size,
     const double width,
     const double period,
@@ -767,11 +767,13 @@ void template_match(
     const int accurate_tp,
     const double jitter, const int offset)
 {
-    #pragma omp parallel for
+
+    double model;
+    #pragma omp parallel for private(model)
     for (int gid=0; gid < size_trial; gid++)
     {
+        DeltaL_trial_g[gid] = 0.0;  // Ensure clean initialization
         // Get the first model
-        double model;
         for (int x=0; x < size; x++)
         {
             if (fabs(time_trial_g[gid] - time_g[x]) < (width/2))
@@ -787,7 +789,7 @@ void template_match(
                                 accurate_tp);
                 DeltaL_trial_g[gid] += 2*(bruce_loglike(flux_g[x], flux_err_g[x], model, jitter, offset) - bruce_loglike(flux_g[x], flux_err_g[x], normalisation_model[x], jitter, offset)); 
             }
-            if ((time_trial_g[gid] - time_g[x]) < (width/2)) break;
+            //if ((time_g[x] - time_trial_g[gid]) < (width/2)) break;
         } 
     }
 }
@@ -795,52 +797,6 @@ void template_match(
 
 
 
-// __kernel void template_match(
-//     __global const double *time_trial_g, __global double *DeltaL_trial_g, 
-//     __global const double *time_g, __global double *flux_g, __global double *flux_err_g,  __global double *normalisation_model, 
-//     const int size_trial, const int size,
-//     const double width,
-//     const double period,
-//     const double radius_1, const double k,const double incl,
-//     const double e, const double w,
-//     const double c, const double alpha,
-//     const double cadence, const int noversample,
-//     const double light_3,
-//     const int ld_law,
-//     const int accurate_tp,
-//     const double jitter, const int offset)
-// {
-//     int gid = get_global_id(0);
-
-//     // Get the first model
-//     double model;
-//     for (int x=0; x < size; x++)
-//     {
-//         //if (gid==20 && x<200){
-//         if (fabs(time_trial_g[gid] - time_g[x]) < (width/2))
-//         {
-//         model = normalisation_model[x]*_lc(time_g[x],
-//                         time_trial_g[gid], period,
-//                         radius_1, k, incl,
-//                         e,w,
-//                         c,alpha,
-//                         cadence, noversample,
-//                         light_3,
-//                         ld_law,
-//                         accurate_tp);
-
-//         // Copy from global to local memory
-//         DeltaL_trial_g[gid] += 2*(_loglike(flux_g[x], flux_err_g[x], model, jitter, offset) - _loglike(flux_g[x], flux_err_g[x], normalisation_model[x], jitter, offset));
-//         //DeltaL_trial_g[gid] += 2*(_loglike(flux_g[x]/normalisation_model[x], flux_err_g[x]/normalisation_model[x], model, jitter, offset));
-
-//         //double log_likeliehood_null = _loglike(flux_g[x]/normalisation_model[x], flux_err_g[x]/normalisation_model[x], 1., jitter, offset);
-//         //log_likeliehood_model = 2 - 2*log_likeliehood_model;
-//         //log_likeliehood_null = 5 - 2*log_likeliehood_null;
-//         //DeltaL_trial_g[gid] += expf(2*(log_likeliehood_null - log_likeliehood_model)/2);
-//         }
-        
-//     }
-// }
 
 
 double transit_width(double radius_1, double k, double b, double period)
@@ -906,8 +862,7 @@ double transit_width(double radius_1, double k, double b, double period)
 
 
 
-#include <math.h>
-#include <omp.h>
+
 
 
 
@@ -1042,59 +997,66 @@ void __rv2(const double time, double * RV1, double * RV2,
     *RV1 = K1*(cos(nu + w) + e*cos(w)) + V0;
     *RV2 = K2*(cos(nu + w + M_PI) + e*cos(w)) + V0;
 }
+void rv1_c(
+    const double *a_g, double *res_g, int a_g_size,
+    const double t_zero, const double period,
+    const double K1, 
+    const double e, const double w, const double incl,
+    const double V0,
+    const int accurate_tp)
+{
+  #pragma omp parallel for 
+  for (int gid=0; gid < a_g_size; gid++)
+  {
+    res_g[gid] = __rv1(a_g[gid],
+                        t_zero, period,
+                        K1,
+                        e,w,incl,
+                        V0,
+                        accurate_tp);
+  }
 
-// __kernel void rv1(
-//     __global const double *a_g, __global double *res_g, 
-//     const double t_zero, const double period,
-//     const double K1, 
-//     const double e, const double w, const double incl,
-//     const double V0,
-//     const int accurate_tp)
-// {
-//   int gid = get_global_id(0);
-//   res_g[gid] = __rv1(a_g[gid],
-//                     t_zero, period,
-//                     K1,
-//                     e,w,incl,
-//                     V0,
-//                     accurate_tp);
-// }
+}
 
-// __kernel void rv2(
-//     __global const double *a_g, __global double *res_g1,  __global double *res_g2, 
-//     const double t_zero, const double period,
-//     const double K1, const double K2, 
-//     const double e, const double w, const double incl,
-//     const double V0,
-//     const int accurate_tp)
-// {
-//   int gid = get_global_id(0);
-//   double rv1_value, rv2_value;
-//   __rv2(a_g[gid], &rv1_value, &rv2_value,
-//                 t_zero, period,
-//                 K1, K2,
-//                 e,w,incl,
-//                 V0,
-//                 accurate_tp);
-//   res_g1[gid] = rv1_value;
-//   res_g2[gid] = rv2_value;
-// }
+void rv2_c(
+    const double *a_g, double *res_g1,  double *res_g2,  int a_g_size,
+    const double t_zero, const double period,
+    const double K1, const double K2, 
+    const double e, const double w, const double incl,
+    const double V0,
+    const int accurate_tp)
+{
+  #pragma omp parallel for 
+  for (int gid=0; gid < a_g_size; gid++)
+  {
+    double rv1_value, rv2_value;
+    __rv2(a_g[gid], &rv1_value, &rv2_value,
+                    t_zero, period,
+                    K1, K2,
+                    e,w,incl,
+                    V0,
+                    accurate_tp);
+    res_g1[gid] = rv1_value;
+    res_g2[gid] = rv2_value;
+  }
+}
 
-
-// __kernel void check_proximity_of_timestamps(__global const double *x_trial, __global const double *x_ref, const int x_ref_size, const double width,
-//                                             __global int * mask)
-// {
-//     uint gid = get_global_id(0);
-//     mask[gid] = 0;
-//     for (int i=0; i<x_ref_size; i++)
-//     {
-//         if (fabs(x_trial[gid] - x_ref[i]) < width) 
-//         {
-//             mask[gid] = 1;
-//             break;
-//         }
-//     }
-// }
+void check_proximity_of_timestamps_fast(const double *x_trial, const double *x_ref, const int x_trial_size, const int x_size, const double width, _Bool * mask)
+{
+    #pragma omp parallel for
+    for (int gid=0; gid < x_trial_size; gid++)
+    {
+        mask[gid] = 0;
+        for (int i=0; i<x_size; i++)
+        {
+            if (fabs(x_trial[gid] - x_ref[i]) < width) 
+            {
+                mask[gid] = 1;
+                break;
+            }
+        }
+    }
+}
 
 
 

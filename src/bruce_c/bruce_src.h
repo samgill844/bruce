@@ -61,3 +61,36 @@ void median_filter_fast(const double *x, const double *y, double *output_signal,
                    double window, int signal_length);
 void convolve_1d_fast(const double *x, const double *y, double *output_signal, 
                  double kernel_length, int signal_length);
+
+
+void rv1_c(
+    const double *a_g, double *res_g, int a_g_size,
+    const double t_zero, const double period,
+    const double K1, 
+    const double e, const double w, const double incl,
+    const double V0,
+    const int accurate_tp);
+void rv2_c(
+    const double *a_g, double *res_g1,  double *res_g2,  int a_g_size,
+    const double t_zero, const double period,
+    const double K1, const double K2, 
+    const double e, const double w, const double incl,
+    const double V0,
+    const int accurate_tp);
+
+
+void check_proximity_of_timestamps_fast(const double *x_trial, const double *x_ref, const int x_trial_size, const int x_size, const double width, _Bool * mask);
+void template_match(
+    const double *time_trial_g, double *DeltaL_trial_g, 
+    const double *time_g, const double *flux_g, const double *flux_err_g,  const double *normalisation_model, 
+    const int size_trial, const int size,
+    const double width,
+    const double period,
+    const double radius_1, const double k,const double incl,
+    const double e, const double w,
+    const double c, const double alpha,
+    const double cadence, const int noversample,
+    const double light_3,
+    const int ld_law,
+    const int accurate_tp,
+    const double jitter, const int offset);
