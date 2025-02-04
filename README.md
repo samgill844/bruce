@@ -68,12 +68,28 @@ time_trial, DeltaL = bruce.template_match.template_match_lightcurve(t, f, fe, w,
 		jitter=0., offset=0,
 		time_step=None, time_trial=None)
 ```
-By simple passing the data, along with parameters used to fit a single transit (period, R1/a, R2/R1, and incl) you can search each possible epoch for signs of a transit. In return, you get time_trial (the epochs we try) and DeltaL, the delta log-likliehood of a match at this position. Epochs where DeltaL > 0 mean the transit model is favoured over a null model. The normalisation model, w, can be whatever you please but we provide a median filter and a convolution filter to use if you so wish. 
+By simple passing the data, along with parameters used to fit a single transit (period, R1/a, R2/R1, and incl) you can search each possible epoch for signs of a transit. In return, you get time_trial (the epochs we try) and DeltaL, the delta log-likliehood of a match at this position. Epochs where DeltaL > 0 mean the transit model is favoured over a null model. You can then look for peaks in DeltaL which are significant (which you can define) like this.
+
+```python
+# Get the FAP heights for 1%, 0.1%, and 0.001% 
+probabilities, heights = bruce.template_match.get_delta_loglike_height_from_fap(p_value=[0.01,0.001,0.0001], df=3) 
+
+from scipy.signal import find_peaks
+peaks, meta = find_peaks(DeltaL, height=heights[2])
+```
+Once you have found viable events (time_trial[peaks[0]], time_trial[peaks[1]], ... and so on), you can use a modified version of the phase dispersion algorithm to estimate the true orbital period:
+```python
+periods = np.linspace(2,100,100000)
+dispersion = bruce.template_match.phase_disperison(time_trial, peaks,  periods)
+period_best = periods[np.argmin(dispersion)]
+```
+
+The normalisation model, w, can be whatever you want, but we provide a median filter and a convolution filter to use if you so wish. 
 ```python
 w = bruce.data.median_filter(t,f, 0.2)
 w = bruce.data.convolve_1d(t,w,0.2) # Should you wish to smooth the output
 ```
-The result can be pretty cool.
+Its worth noting that the quality of your results can be pretty dependent on the normalisation model, but iof you get it right, the result can be pretty cool.
 <img src="images/template_match.png" width="80%" alt="Template matching"/>
 
 ------------------
@@ -95,13 +111,6 @@ flux_convolved_10min = bruce.data_processing.convolve_1d(time, flux, bin_size=0.
 
 ## Performance
 
-Most functions are expecting numpy arrays of type np.float64. If not, they will be re-cast in the C-code which ultimately yields a performance penalty. Take this example:
-```python
+Most functions are expecting contigeous numpy arrays of type np.float64. If not, they will be re-cast in the C-code which ultimately yields a performance penalty. 
 
-```
-
-
-
-
-
-Additionally, what you set for OMP_NUM_THREADS will also 
+If you want to use only a single core, you will have to set the OMP_NUM_THREADS enviroment variable whoch controls the number of processes used for parallel regions of the C code. If you are fitting these functions using multiprocesing, it is advised you set this to 1. 

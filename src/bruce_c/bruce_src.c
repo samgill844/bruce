@@ -1216,37 +1216,26 @@ void convolve_1d_fast(const double *x, const double *y, double *output_signal,
 
 
 
-
-// __kernel void compute_dispersion(
-//     __global const double* time_trial,
-//     __global const int* peaks,
-//     __global const double* periods,
-//     __global double* dispersion,
-//     const int num_peaks,
-//     const int num_periods,
-//     __local double* phase  // Use local memory for phase array
-// ) {
-//     int i = get_global_id(0);  // Each thread processes a different period
-//     if (i < num_periods) {
-//         double period = periods[i];
-//         //double phase[num_peaks];
-        
-//         // Compute phase for each peak
-//         for (int j = 0; j < num_peaks; j++) {
-//             phase[j] = fmod(time_trial[peaks[j]] / period, 1.0);
-//         }
-        
-//         // Compute pairwise differences and sum them
-//         double disp = 0.0;
-//         for (int j = 0; j < num_peaks; j++) {
-//             for (int k = j + 1; k < num_peaks; k++) {
-//                 double diff = fabs(phase[j] - phase[k]);
-//                 double pairwise_diff = fmin(diff, 1.0 - diff);
-//                 disp += pairwise_diff;
-//             }
-//         }
-        
-//         // Store the result in the dispersion array
-//         dispersion[i] = disp;
-//     }
-// }
+void compute_dispersion(
+    const double* time_trial,
+    const int* peaks,
+    const double* periods,
+    double* dispersion,
+    const int num_peaks,
+    const int num_periods
+) {
+    #pragma omp parallel for
+    for (int i = 0; i < num_periods; i++) {        
+        // Compute pairwise differences and sum them
+        for (int j = 0; j < num_peaks; j++) {
+            for (int k = j + 1; k < num_peaks; k++) {
+                //if (peaks[j] < 0 || peaks[j] >= num_peaks || peaks[k] < 0 || peaks[k] >= num_peaks) continue;
+                double phase_j = fmod(time_trial[peaks[j]] / periods[i], 1.0);
+                double phase_k = fmod(time_trial[peaks[k]] / periods[i], 1.0);
+                double diff = fabs(phase_j - phase_k);
+                double pairwise_diff = fmin(diff, 1.0 - diff);
+                dispersion[i] += pairwise_diff;
+            }
+        }
+    }
+}

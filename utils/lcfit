@@ -1,0 +1,94 @@
+import sys
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QGridLayout
+import pyqtgraph as pg
+from PyQt5.QtGui import QPalette, QColor
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        # Set up the main window
+        self.setWindowTitle("PyQtGraph Plots with Buttons")
+        self.resize(1500, 800)
+
+        # Set dark theme
+        self.set_dark_theme()
+
+        # Create the central widget and main layout
+        central_widget = QWidget()
+        central_widget.setStyleSheet("background-color: black;")  # Set background color to black
+        self.setCentralWidget(central_widget)
+
+        main_layout = QHBoxLayout()
+        central_widget.setLayout(main_layout)
+
+        # Left layout for the plots
+        plots_layout = QVBoxLayout()
+        main_layout.addLayout(plots_layout, 4)  # Weight of 4 for plots
+
+        # Add three pyqtgraph plots
+        self.plot1 = pg.PlotWidget(title="Plot 1")
+        self.plot2 = pg.PlotWidget(title="Plot 2")
+        self.plot3 = pg.PlotWidget(title="Plot 3")
+        self.plot4 = pg.PlotWidget(title="Plot 4")
+
+        # Set plot backgrounds to black and text to white
+        for plot in [self.plot1, self.plot2, self.plot3, self.plot4]:
+            plot.setBackground('k')
+            plot.getAxis('left').setPen('w')
+            plot.getAxis('bottom').setPen('w')
+            #plot.getTitleLabel().setColor('w')  # Ensure title text is white
+
+        # Create a grid layout
+        plots_layout = QGridLayout()
+
+        # Add the plots to the grid layout
+        plots_layout.addWidget(self.plot1, 0, 0, 1, 2)  # Top row, first column
+        plots_layout.addWidget(self.plot2, 1, 0, 1, 2)  # Middle row, first column
+        plots_layout.addWidget(self.plot3, 2, 0)  # Bottom row, first column
+        plots_layout.addWidget(self.plot4, 2, 1)  # Bottom row, second column
+
+        # Set the layout for the widget
+        main_layout.addLayout(plots_layout)
+
+        # Right layout for the buttons
+        buttons_layout = QVBoxLayout()
+        main_layout.addLayout(buttons_layout, 1)  # Weight of 1 for buttons
+
+        # Add buttons to the right layout
+        self.button1 = QPushButton("Button 1")
+        self.button2 = QPushButton("Button 2")
+        self.button3 = QPushButton("Button 3")
+
+        # Set button styles for dark theme
+        for button in [self.button1, self.button2, self.button3]:
+            button.setStyleSheet("background-color: grey; color: white;")
+
+        buttons_layout.addWidget(self.button1)
+        buttons_layout.addWidget(self.button2)
+        buttons_layout.addWidget(self.button3)
+        buttons_layout.addStretch()  # Push buttons to the top
+
+    def set_dark_theme(self):
+        # Apply a dark theme to standard widgets
+        palette = QPalette()
+        palette.setColor(QPalette.Window, QColor(0, 0, 0))
+        palette.setColor(QPalette.WindowText, QColor(255, 255, 255))
+        palette.setColor(QPalette.Base, QColor(25, 25, 25))
+        palette.setColor(QPalette.AlternateBase, QColor(0, 0, 0))
+        palette.setColor(QPalette.ToolTipBase, QColor(255, 255, 255))
+        palette.setColor(QPalette.ToolTipText, QColor(255, 255, 255))
+        palette.setColor(QPalette.Text, QColor(255, 255, 255))
+        palette.setColor(QPalette.Button, QColor(0, 100, 0))
+        palette.setColor(QPalette.ButtonText, QColor(255, 255, 255))
+        palette.setColor(QPalette.BrightText, QColor(255, 0, 0))
+        palette.setColor(QPalette.Highlight, QColor(50, 50, 50))
+        palette.setColor(QPalette.HighlightedText, QColor(255, 255, 255))
+        self.setPalette(palette)
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec_())

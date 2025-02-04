@@ -990,15 +990,51 @@ static PyObject *template_match_reduce(PyObject *self, PyObject *args)
 
 
 
+static PyObject *phase_dispersion(PyObject *self, PyObject *args) 
+{
+    // Allocation
+    PyObject * time_trial_obj, * peaks_obj,  *periods_obj;
 
+    // Parse input arguments
+    if (!PyArg_ParseTuple(args, "OOO", &time_trial_obj,&peaks_obj,&periods_obj)) {
+        return NULL;
+    }
 
+    // re-cast the arrays
+    PyArrayObject *time_trial_array = (PyArrayObject *)PyArray_FROMANY(time_trial_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
+    PyArrayObject *peaks_array = (PyArrayObject *)PyArray_FROMANY(peaks_obj, NPY_INT, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
+    PyArrayObject *periods_array = (PyArrayObject *)PyArray_FROMANY(periods_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
 
+    // Lets get the sizes
+    int peaks_size = (int)PyArray_SIZE(peaks_array);
+    int periods_size = (int)PyArray_SIZE(periods_array);
 
+    // Now lets allocate the dispersion array (zeros)
+    npy_intp dims[1] = {periods_size};
+    PyArrayObject *dispersion_array = (PyArrayObject *)PyArray_ZEROS(1, dims, NPY_DOUBLE, 0);
 
+    // Now cast to doubles
+    const double *time_trial = (const double *)PyArray_DATA(time_trial_array);
+    const int *peaks = (const int *)PyArray_DATA(peaks_array);
+    const double *periods = (const double *)PyArray_DATA(periods_array);
+    double *dispersion = (double *) PyArray_DATA(dispersion_array);
 
+    // Now make the call
+    compute_dispersion(time_trial,
+        peaks,
+        periods,
+        dispersion,
+        peaks_size,
+        periods_size);
 
+    // Decrease the references
+    Py_DECREF(time_trial_array);
+    Py_DECREF(peaks_array);
+    Py_DECREF(periods_array);
 
-
+    // Return the array
+    return (PyObject *) dispersion_array;
+}
 
 
 
@@ -1055,6 +1091,7 @@ static PyMethodDef bruce_c_methods[] = {
     {"rv2_loglike", rv2_loglike, METH_VARARGS, "Compute the radial velocity log-likliehood given an RV dataset."}, 
     {"check_proximity_of_timestamps", check_proximity_of_timestamps, METH_VARARGS, "Check the timestamps are within 0.5*width of an observation."},
     {"template_match_reduce", template_match_reduce, METH_VARARGS, "Template match a lighcurve."},
+    {"phase_dispersion", phase_dispersion, METH_VARARGS, "Calculate the dispersion."},
     {NULL, NULL, 0, NULL}  // Sentinel
 };
 

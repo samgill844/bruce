@@ -6,7 +6,7 @@ from scipy.signal import find_peaks
 np.random.seed(0)
 night = np.arange(-0.3,0.3, 0.5/24/4)
 
-nnights = 20
+nnights = 50
 t = np.array([])
 for i in range(nnights) :
     t = np.concatenate((t,night+i))
@@ -35,15 +35,19 @@ time_trial, DeltaL = bruce.template_match.template_match_lightcurve(t, f, fe, w,
 		time_step=None, time_trial=None)
 
 
-peaks, meta = find_peaks(DeltaL, height=50)
-model1 = w*bruce.binarystar.lc(t, t_zero=time_trial[peaks[0]], period = period, radius_1 = 0.03, k = 0.05, ld_law=-2)*bruce.binarystar.lc(t, t_zero=time_trial[peaks[1]], period = period, radius_1 = 0.03, k = 0.05, ld_law=-2)
 
 probabilities, heights = bruce.template_match.get_delta_loglike_height_from_fap(p_value=[0.01,0.001,0.0001], df=3)
+peaks, meta = find_peaks(DeltaL, height=heights[2])
+model1 = w*bruce.binarystar.lc(t, t_zero=time_trial[peaks[0]], period = period, radius_1 = 0.03, k = 0.05, ld_law=-2)*bruce.binarystar.lc(t, t_zero=time_trial[peaks[1]], period = period, radius_1 = 0.03, k = 0.05, ld_law=-2)
 
-print(peaks)
+periods = np.linspace(2,100,100000).astype(np.float64)
+dispersion = bruce.template_match.phase_disperison(time_trial, peaks,  periods)
+period_best = periods[np.argmin(dispersion)]
+
 mosaic = '''AA
 BB
-CD'''
+CD
+EE'''
 fig, ax = plt.subplot_mosaic(mosaic=mosaic, figsize = (7,7))
 for i in ['A','C','D']:
     ax[i].scatter(t, f, c='k', s=1)
@@ -62,6 +66,14 @@ ax['B'].set(xlabel='Time [d]', ylabel=r'$\Delta\,\log \mathcal{L}$')
 
 ax['C'].set_xlim((time_trial[peaks[0]] - 0.1, time_trial[peaks[0]] + 0.1))
 ax['D'].set_xlim((time_trial[peaks[1]] - 0.1, time_trial[peaks[1]] + 0.1))
+
+ax['E'].loglog(periods, dispersion, lw=1,c='k')
+ax['E'].axvline(period_best, lw=1, c='r', ls='--')
+
+xlabel = np.concatenate((np.arange(2,11), np.arange(20,90,10), [100]))
+xlabel_string = [str(i) for i in xlabel]
+ax['E'].set(ylabel=r'$\Delta \log \mathcal{L}$', xlabel='Period [day]')
+ax['E'].set_xticks(xlabel, xlabel_string)
 
 
 plt.tight_layout()

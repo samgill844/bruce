@@ -47,3 +47,6 @@ def template_match_lightcurve(time, flux, flux_err, normalisation_model, period 
 def get_delta_loglike_height_from_fap(p_value=[0.01,0.001,0.0001], df=6):
     # Compute the CDF 
     return p_value, stats.chi2.ppf(1 - np.array(p_value), df)
+
+def phase_disperison(time_trial, peaks,  periods):
+	return bruce_c.phase_dispersion(time_trial, np.array(peaks, dtype=np.int32),  periods)

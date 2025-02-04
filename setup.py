@@ -15,5 +15,6 @@ setup(
     description='A module for multiplying NumPy arrays with OpenMP',
     packages=find_packages(where='src'),  # Find Python packages in src/
     package_dir={'': 'src'},  # Set the root for Python packages
-    ext_modules=[bruce_c_module]
+    ext_modules=[bruce_c_module],
+    scripts=['utils/lcmatch']
 )

@@ -1,0 +1,577 @@
+#!/home/sam/anaconda3/bin/python
+import argparse, numpy as np, math, bruce
+from astropy.table import Table
+import matplotlib.pyplot as plt
+from astropy.stats import sigma_clip
+from astropy.time import Time
+from scipy.signal import find_peaks
+
+
+from matplotlib import pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib import gridspec
+import matplotlib.ticker as mticker
+
+from astroplan import Observer
+from astropy.time import Time
+
+
+plt.rcParams["font.family"] = "Times New Roman"
+
+
+def parse_args():
+
+    # Argument parser
+    parser = argparse.ArgumentParser('LCMATCH: template matching algorithm for lightcurves.')
+
+    parser.add_argument("filename",
+                        help='The filename from which to template search', default=None)
+
+    parser.add_argument('-a', 
+                        '--period',
+                        help='The orbital period in arbritraty time units consisting with the input file.',
+                        default=10, type=float)  
+
+    parser.add_argument('-b', 
+                        '--radius_1',
+                        help='The radius of star 1 in units of the semi-major axis, a.',
+                        default=0.2, type=float)  
+
+    parser.add_argument('-c', 
+                        '--k',
+                        help='The ratio of the radii of star 2 and star 1 (R2/R1).',
+                        default=0.2, type=float)  
+        
+    parser.add_argument('-d', 
+                        '--b',
+                        help='The impact parameter of the orbit (incl = arccos(radius_1*b).',
+                        default=0., type=float)  
+
+    parser.add_argument('-e', 
+                        '--light_3',
+                        help='The third light.',
+                        default=0.0, type=float) 
+    
+    parser.add_argument('-f', 
+                        '--fs',
+                        help='fs.',
+                        default=0.0, type=float) 
+    parser.add_argument('-g', 
+                        '--fc',
+                        help='fc',
+                        default=0.0, type=float) 
+
+    parser.add_argument('-i', 
+                        '--ldc_1',
+                        help='ldc_1',
+                        default=0.7, type=float) 
+    parser.add_argument('-k', 
+                        '--ldc_2',
+                        help='ldc_2',
+                        default=0.5, type=float) 
+    
+    parser.add_argument('-l', 
+                        '--output_dir',
+                        help='Tha save path directory',
+                        default='.',  type=str) 
+    
+    parser.add_argument('-m', 
+                        '--name',
+                        help='The name of the star',
+                        default='star',  type=str) 
+    
+    parser.add_argument('-n', 
+                        '--context',
+                        help='Tha openCL context',
+                        default=0,  type=int) 
+    
+    parser.add_argument('-o', 
+                        '--device',
+                        help='Tha openCL device.',
+                        default=2,  type=int) 
+    
+    parser.add_argument('-p', 
+                        '--bin',
+                        help='Bin',
+                        default=None, type=float) 
+
+    parser.add_argument('-q', 
+                        '--keep',
+                        help='The number of peaks to keep. Default is 10',
+                        default=200, type=int) 
+    
+    parser.add_argument('-r', '--fap_levels', 
+                        help='The confidence levels peaks are not caused by spurious detections.', 
+                        nargs='+',
+                        type=float,
+                        default=[0.01,0.001,0.0001])
+
+    parser.add_argument('-t', 
+                        '--sigmaclip',
+                        help='Optional sigmaclip of data after normalisation.',
+                        default=None, type=float) 
+    
+    parser.add_argument('-u', 
+                        '--distance',
+                        help='Distance between peaks [same units as time.]',
+                        default=100, type=float) 
+
+
+    # Normalisation
+    parser.add_argument('-v', 
+                        '--normalisation_method',
+                        help='The normalisation_method. Choices are even median, median_filter, or smoothed_median_filter.',
+                        default='median', type=str) 
+    
+    parser.add_argument('-w', 
+                        '--median_filter_width',
+                        help='The median filter width in units of time.',
+                        default=5, type=float) 
+    
+    parser.add_argument('-x', 
+                        '--median_filter_smooth_kernel',
+                        help='The median filter width in units of time.',
+                        default=5, type=float) 
+    
+    parser.add_argument('--show_specs', action="store_true", default=False)
+
+    # Period search
+    parser.add_argument('--period_search', action="store_true", default=False)
+    parser.add_argument('-y', 
+                        '--period_min',
+                        help='The minimum period to search [default is 1 day].',
+                        default=1, type=float) 
+    parser.add_argument('-z', 
+                        '--period_max',
+                        help='The maximum period to search [default is 100 days].',
+                        default=100, type=float)   
+    parser.add_argument('-aa', 
+                        '--period_samples',
+                        help='The number of period samples [default is 100,000 samples between period_min and period_max].',
+                        default=1000000, type=int) 
+
+    parser.add_argument('-ab', '--keep_only_peaks', 
+                        help='Search period space keeping only certain peaks', 
+                        nargs='+',
+                        type=int,
+                        default=[])  
+
+
+    parser.add_argument('-ac', 
+                        '--t_zero_ref',
+                        help='The epoch of a reference system',
+                        default=None, type=float) 
+    parser.add_argument('-ad', 
+                        '--period_ref',
+                        help='The period of a refernce system.',
+                        default=None, type=float)  
+    return parser.parse_args()
+
+
+def load_data(filename):
+    # First, lets try PAOPhot2
+    def load_quicklook(filename):
+        try : 
+            #t = Table.read(filename, hdu=3)
+            #time, flux, flux_err = np.array(t['BJD'], dtype = np.float64), np.array(t['TARGET_DETRENDED'], dtype = np.float64), np.array(t['TARGET_DETRENDED_ERR'], dtype = np.float64)
+            from pyngts.ngts_timeseries import paophot2_data
+            import matplotlib
+            matplotlib.use('MacOSX')
+            a = paophot2_data(filename)
+            a = a.sigma_clip_data()
+            a = a.align_cameras()
+            a = a.sigma_clip_data() 
+            time, flux, flux_err = np.array(a.data['BJD'], dtype = np.float64), np.array(a.data['TARGET_DETRENDED'], dtype = np.float64), np.array(a.data['TARGET_DETRENDED_ERR'], dtype = np.float64)
+            return time, flux, flux_err
+        except : return None,None,None
+
+    def load_ngts(filename):
+        try : 
+            t = Table.read(filename)
+            mask = t['FLAGS_1']==0
+            t = t[mask]
+            time = np.array(t['BJD'], dtype = np.float64)
+            flux = np.array(t['SYSREM_FLUX'], dtype = np.float64)
+            flux_err =  np.array(t['RAW_FLUX_ERR'], dtype = np.float64) 
+            flux_err = flux_err / np.median(flux)
+            flux = flux / np.median(flux)
+            return time, flux, flux_err
+        except : return None,None,None
+
+    def load_wasp(filename):
+        try : 
+            t = Table.read(filename)
+            time = np.array(t['HJD'], dtype = np.float64)
+            flux = np.array(t['TAMFLUX2'], dtype = np.float64)
+            flux_err =  np.array(t['TAMFLUX2_ERR'], dtype = np.float64) 
+            flux_err = flux_err / np.median(flux)
+            flux = flux / np.median(flux)
+            return time, flux, flux_err
+        except : return None,None,None 
+
+    def load_ascii(filename):
+        # Now lets try plain ascii 
+        try :return  np.loadtxt(filename).T
+        except : return None,None,None 
+            
+    time, flux, flux_err = None,None,None
+    if time is None :     time, flux, flux_err =load_quicklook(filename)
+    if time is None :     time, flux, flux_err =load_ngts(filename)
+    if time is None :     time, flux, flux_err =load_wasp(filename)
+    if time is None :     time, flux, flux_err =load_ascii(filename)
+
+    if (time is None) or (flux is None) or (flux_err is None) : 
+        raise ValueError('Unable to load data for {:}'.format(filename))
+    
+    # See if a sigma clip is needed
+    if args.sigmaclip is not None:
+        mask = ~sigma_clip(flux, args.sigmaclip, masked=True).mask
+        time,flux,flux_err = time[mask],flux[mask],flux_err[mask]
+    return time,flux,flux_err 
+
+
+if __name__=='__main__':
+    # First, parse args
+    args = parse_args()
+
+    # Lets convert fs, fc to e and w before we go on
+    args.e = args.fs**2 + args.fc**2
+    args.w = math.atan2(args.fs,args.fc)
+    args.width = bruce.binarystar.transit_width(args.radius_1,
+                                                   args.k, 
+                                                   args.b, 
+                                                   period=args.period)
+
+    # Load the data
+    time, flux, flux_err = load_data(args.filename)
+    idx = np.argsort(time)
+    time, flux, flux_err = time[idx], flux[idx], flux_err[idx]
+    if args.bin:
+        #import bruce2
+        #print('Binning data to {:} minutes'.format(args.bin))
+        #time, flux, flux_err = bruce2.data.bin_data(time, flux, args.bin*0.000694444)
+
+        time, flux, flux_err, count = bruce.data.bin_data(time, flux, args.bin*0.000694444)
+        mask = count>10
+        time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
+        print('Min flux_err : {:}'.format(flux_err.min()))
+        print('Median flux_err : {:}'.format(np.median(flux_err)))
+        print('Count for min flux_err : {:}'.format(count[np.argmin(flux_err)]))
+
+    t0 = int(np.floor(np.min(time)))
+
+    # Get W(t_n)
+    if args.normalisation_method=='median' : wt = np.ones(time.shape)*np.median(flux)
+    elif args.normalisation_method=='median_filter':
+        print('Normalisign with median filter of length {:} days'.format(args.median_filter_width))
+        wt = bruce.data.median_filter(time,flux, args.median_filter_width)
+    elif args.normalisation_method=='smoothed_median_filter':
+        wt = bruce.data.median_filter(time,flux, args.median_filter_width)
+        print('Normalisign with median filter of length {:} days and convolution window of {:} days'.format(args.median_filter_width, args.median_filter_smooth_kernel))
+        wt = bruce.data.convolve_1d(time, wt, args.median_filter_smooth_kernel)
+    elif args.normalisation_method=='normalise_each_night':
+        segments = bruce.data.find_nights_from_data(time, dx_lim=0.2)
+        wt = np.zeros(time.shape[0], dtype= np.float64)
+        for seg in segments:
+            quarter_edges = np.linspace(np.min(time[seg])-1e-3,np.max(time[seg])+1e-3,5)
+            dig = np.digitize(time[seg], quarter_edges, right=True)
+            medians = np.array([np.median(flux[seg][dig==i]) for i in range(1,len(quarter_edges))])
+            wt[seg] = np.max(medians)
+    else : raise ValueError('Unkown option to calcualte W(T_n) (the normalisation model). Options are median, median_filter, or smoothed_median_filter.')
+        
+
+    # Now do the actual template match
+    time_trial, DeltaL = bruce.template_match.template_match_lightcurve(time, flux, flux_err, wt, period = args.period,
+            radius_1=args.radius_1, k = args.k, incl=np.arccos(args.radius_1*args.b),
+            e=args.e, w = args.w,
+            c = args.ldc_1, alpha =args.ldc_2,
+            cadence=0, noversample=10,
+            light_3=args.light_3,
+            ld_law = -2,
+            accurate_tp=1,
+            jitter=0., offset=0,
+            time_step=None, time_trial=None)
+    
+    # Lets get the heights
+    probabilities, heights = bruce.template_match.get_delta_loglike_height_from_fap(p_value=args.fap_levels, df=3)
+    
+    # Lets get the peaks by choosign the highest probability
+    peaks, meta = find_peaks(DeltaL, height=np.max(heights), distance=args.distance)
+    print('Found {:,} peaks'.format(len(peaks)))
+    if len(peaks) > args.keep:
+        print('Trimming to {:,} peaks'.format(args.keep))
+        peaks = peaks[:args.keep]
+    
+    # Now lets plot
+    fig, ax = plt.subplots(1,1, figsize=(7,3))
+    ax.plot(time_trial-t0, DeltaL, c='k', lw=1)
+    label_offset = np.nanmax(DeltaL)*0.1
+    props = dict(boxstyle='round', facecolor='wheat', alpha=1)
+    for i in range(len(probabilities)):
+        ls = ['dashed', 'dotted', 'dashdot', 'solid'][i]
+        ax.axhline(heights[i], c='k', ls=ls, label='FAP={:.2f}%'.format(100*probabilities[i]))
+    for i in range(len(peaks)):
+        ax.text(time_trial[peaks[i]]-t0, DeltaL[peaks[i]]+label_offset, str(i+1), fontsize=10,
+            verticalalignment='bottom', horizontalalignment='center', bbox=props)
+        
+    ax.legend()
+    ax.set(xlabel='Time - {:,}'.format(t0), ylabel=r'$\Delta \log \mathcal{L}$', ylim=(0,None))
+    plt.tight_layout()
+    plt.savefig('{:}/{:}_DeltaL.png'.format(args.output_dir,args.name), dpi=200)
+    plt.close()
+
+
+        
+    # Now its time to plot the model
+    fig, ax = plt.subplots(1,1, figsize=(7,3))
+    ax.errorbar(time-t0, flux, yerr=flux_err, zorder=0,
+                fmt='.', ecolor='grey', elinewidth=0.1, capsize=0.1,capthick=0.1, markersize=0.1,
+                alpha = 0.3)
+    ax.errorbar(time-t0, flux, yerr=flux_err, zorder=0,
+                fmt='.', ecolor='grey')
+    ax.set(xlabel='Time - {:,}'.format(t0), ylabel='Flux', title='{:} lightcurve'.format(args.name))
+    segments = bruce.data.find_nights_from_data(time, dx_lim=0.2)
+    for seg in segments:ax.plot(time[seg]-t0, wt[seg], c='orange', zorder=1, lw=1)
+
+    maxmin = np.nanmax(wt) - np.nanmin(wt)
+    median = np.nanmedian(wt)
+
+    #for i in range(len(peaks)) : 
+    #    ax.axvline(time_trial[peaks[i]]-t0, c='r', lw=1, ls='--')
+    for i in range(len(peaks)):
+        ax.text(time_trial[peaks[i]]-t0, np.interp(time_trial[peaks[i]], time, wt) + (np.max(wt) - np.min(wt)), str(i+1), fontsize=10,
+            verticalalignment='bottom', horizontalalignment='center', bbox=props)
+        
+
+    plt.tight_layout()
+    plt.savefig('{:}/{:}_normalisation.png'.format(args.output_dir,args.name), dpi=200)
+    ax.set(ylim=(median-1*maxmin, median+1*maxmin))
+    plt.savefig('{:}/{:}_normalisation_trimmed.png'.format(args.output_dir,args.name), dpi=200)
+    plt.close()
+
+    # Now lets plot the peaks
+    if len(peaks)==0:
+        exit()
+
+
+
+    ncols = 5
+    nrows = int(np.ceil(len(peaks)/ncols))
+    fig, ax = plt.subplots(nrows, min(len(peaks),5), figsize=(12*min(len(peaks),5)/5,8*nrows/4))
+    ax =np.atleast_1d(ax).flatten()
+    for i in range(len(peaks)):
+        mask= (time>(time_trial[peaks[i]]-args.width)) & (time<(time_trial[peaks[i]]+args.width))
+        ax[i].errorbar(24*(time[mask] - time_trial[peaks[i]]), flux[mask]/wt[mask], yerr= flux_err[mask]/wt[mask], 
+                        fmt='k.', ecolor='grey', elinewidth=0.1, capsize=0.1,capthick=0.1, markersize=0.7)
+        
+        t_ = np.linspace(time_trial[peaks[i]]-args.width,time_trial[peaks[i]]+args.width, 1000)
+        model = bruce.binarystar.lc(t_,t_zero=time_trial[peaks[i]],        
+                                period = args.period,
+                                radius_1=args.radius_1, k = args.k, incl=np.arccos(args.radius_1*args.b),
+                                e=args.e, w = args.w,
+                                c = args.ldc_1, alpha =args.ldc_2,
+                                cadence=0, noversample=10,
+                                light_3=args.light_3,
+                                ld_law = -2,
+                                accurate_tp=1)
+        ax[i].plot(24*(t_-time_trial[peaks[i]]), model, c='r', lw=1)
+
+        # Calculate the night of the event.
+        current_time = Time(t_[0], format='jd')
+        observer = Observer.at_site('paranal')
+        previous_sunrise = observer.sun_rise_time(current_time, which="previous")
+
+        ax[i].text(0.04,0.98, str(i+1) + ' - ' + previous_sunrise.datetime.__str__()[:10], fontsize=8,transform=ax[i].transAxes,
+                verticalalignment='top', horizontalalignment='left', bbox=props)
+        ax[i].set(xlabel='Time - {:.5f}'.format(time_trial[peaks[i]]), ylabel='Flux')
+
+    if nrows>1:
+        while True:
+            i += 1
+            idx = i%5
+            if idx!=0: ax[i].set_axis_off()
+            else : break
+            
+    plt.tight_layout()
+    plt.savefig('{:}/{:}_events.png'.format(args.output_dir,args.name), dpi=200)
+    plt.close()
+
+
+    # Now do the same but with the median filter applied
+    fig, ax = plt.subplots(nrows, min(len(peaks),5), figsize=(12*min(len(peaks),5)/5,8*nrows/4))
+    ax =np.atleast_1d(ax).flatten()
+    for i in range(len(peaks)):
+        mask= (time>(time_trial[peaks[i]]-args.width)) & (time<(time_trial[peaks[i]]+args.width))
+        ax[i].errorbar(24*(time[mask] - time_trial[peaks[i]]), flux[mask], yerr= flux_err[mask], 
+                        fmt='k.', ecolor='grey', elinewidth=0.1, capsize=0.1,capthick=0.1, markersize=0.7)
+        
+        t_ = np.linspace(np.min(time[mask]),np.max(time[mask]), 1000)
+        model = bruce.binarystar.lc(t_,t_zero=time_trial[peaks[i]],        
+                                period = args.period,
+                                radius_1=args.radius_1, k = args.k, incl=np.arccos(args.radius_1*args.b),
+                                e=args.e, w = args.w,
+                                c = args.ldc_1, alpha =args.ldc_2,
+                                cadence=0, noversample=10,
+                                light_3=args.light_3,
+                                ld_law = -2,
+                                accurate_tp=1)
+        wt_interped = np.interp(t_, time[mask], wt[mask])
+        ax[i].plot(24*(t_-time_trial[peaks[i]]), wt_interped, c='r', lw=1, ls='--')
+        ax[i].plot(24*(t_-time_trial[peaks[i]]), model*wt_interped, c='r', lw=1)
+
+        # Calculate the night of the event.
+        current_time = Time(t_[0], format='jd')
+        observer = Observer.at_site('paranal')
+        previous_sunrise = observer.sun_rise_time(current_time, which="previous")
+
+        ax[i].text(0.04,0.98, str(i+1) + ' - ' + previous_sunrise.datetime.__str__()[:10], fontsize=8,transform=ax[i].transAxes,
+                verticalalignment='top', horizontalalignment='left', bbox=props)
+        ax[i].set(xlabel='Time - {:.5f}'.format(time_trial[peaks[i]]), ylabel='Flux')
+
+    if nrows>1:
+        while True:
+            i += 1
+            idx = i%5
+            if idx!=0: ax[i].set_axis_off()
+            else : break
+            
+    plt.tight_layout()
+    plt.savefig('{:}/{:}_events_wt.png'.format(args.output_dir,args.name), dpi=200)
+    plt.close()
+
+    # Now lets list the peaks
+    print('Summary of epochs')
+    print('-----------------')
+    print('False alarm levels')
+    for i in range(len(heights)):
+        print('   {:.3f}% -> Delta L = {:.1f}'.format(100*probabilities[i], heights[i]))
+    print('-----------------')
+    for i in range(len(peaks)):
+        print('[IDX {:<3} P{:<3}] Delta L = {:<10.0f}  Epoch {:<10.5f} [{:}]'.format(i,i+1, DeltaL[peaks[i]], time_trial[peaks[i]], Time(time_trial[peaks[i]], format='jd').datetime))
+    print('-----------------')
+
+    exit()
+
+    if len(args.keep_only_peaks)>0:
+        print('Trimming and keeping only some peaks')
+        mask = np.zeros(len(peaks),dtype=bool)
+        mask[args.keep_only_peaks] = True 
+        peaks = peaks[mask]
+        print('-----------------')
+        for i in range(len(peaks)):
+            if (args.t_zero_ref is not None) and (args.period_ref is not None):
+                phase = 'PHASE {:.2f}'.format(openlc.binarystar.utils.phase_times(time_trial[peaks[i]], args.t_zero_ref, args.period_ref,0.8))
+            else : phase = ''
+            print('[IDX {:<3} P{:<3}] Delta L = {:<10.0f}  Epoch {:<10.5f} [{:}]   diff {:<5.5f} {:}'.format(i,i+1, DeltaL[peaks[i]], time_trial[peaks[i]], Time(time_trial[peaks[i]], format='jd').datetime, (time_trial[peaks[i]]-time_trial[peaks[i-1]]) if i>0 else 0, phase))
+        print('-----------------')
+
+        fig, ax = plt.subplots(1,1, figsize=(7,3))
+        ax.plot(time_trial-t0, DeltaL, c='k', lw=1)
+        label_offset = np.nanmax(DeltaL)*0.1
+        props = dict(boxstyle='round', facecolor='wheat', alpha=1)
+        for i in range(len(probabilities)):
+            ls = ['dashed', 'dotted', 'dashdot', 'solid'][i]
+            ax.axhline(heights[i], c='k', ls=ls, label='FAP={:.2f}%'.format(100*probabilities[i]))
+        for i in range(len(peaks)):
+            ax.text(time_trial[peaks[i]]-t0, DeltaL[peaks[i]]+label_offset, str(i+1), fontsize=10,
+                verticalalignment='bottom', horizontalalignment='center', bbox=props)
+            
+        ax.legend()
+        ax.set(xlabel='Time - {:,}'.format(t0), ylabel=r'$\Delta \log \mathcal{L}$', ylim=(0,None))
+        plt.tight_layout()
+        plt.savefig('{:}/{:}_DeltaL_trimmed.png'.format(args.output_dir,args.name), dpi=200)
+        plt.close()
+
+        ncols = 5
+        nrows = int(np.ceil(len(peaks)/ncols))
+        fig, ax = plt.subplots(nrows, min(len(peaks),5), figsize=(12*min(len(peaks),5)/5,8*nrows/4))
+        ax =np.atleast_1d(ax).flatten()
+        for i in range(len(peaks)):
+            mask= (time>(time_trial[peaks[i]]-args.width)) & (time<(time_trial[peaks[i]]+args.width))
+            ax[i].errorbar(24*(time[mask] - time_trial[peaks[i]]), flux[mask]/wt[mask], yerr= flux_err[mask]/wt[mask], 
+                            fmt='k.', ecolor='grey', elinewidth=0.1, capsize=0.1,capthick=0.1, markersize=0.7)
+            
+            t_ = np.linspace(time_trial[peaks[i]]-args.width,time_trial[peaks[i]]+args.width, 1000)
+            model = openlc.binarystar.lc(t_,t_zero=time_trial[peaks[i]],runtime=runtime,        
+                                    period = args.period,
+                                    radius_1=args.radius_1, k = args.k, incl=np.arccos(args.radius_1*args.b),
+                                    e=args.e, w = args.w,
+                                    c = args.ldc_1, alpha =args.ldc_2,
+                                    cadence=0, noversample=10,
+                                    light_3=args.light_3,
+                                    ld_law = -2,
+                                    accurate_tp=1)
+            ax[i].plot(24*(t_-time_trial[peaks[i]]), model, c='r', lw=1)
+            ax[i].text(0.04,0.98, str(i+1), fontsize=10,transform=ax[i].transAxes,
+                    verticalalignment='top', horizontalalignment='left', bbox=props)
+            ax[i].set(xlabel='Time - {:.5f}'.format(time_trial[peaks[i]]), ylabel='Flux')
+
+        if nrows>1:
+            while True:
+                i += 1
+                idx = i%5
+                if idx!=0: ax[i].set_axis_off()
+                else : break
+                
+        plt.tight_layout()
+        plt.savefig('{:}/{:}_events_trimmed_peaks.png'.format(args.output_dir,args.name), dpi=200)
+        plt.close()
+
+
+        # Now do the same but with the median filter applied
+        fig, ax = plt.subplots(nrows, min(len(peaks),5), figsize=(12*min(len(peaks),5)/5,8*nrows/4))
+        ax =np.atleast_1d(ax).flatten()
+        for i in range(len(peaks)):
+            mask= (time>(time_trial[peaks[i]]-args.width)) & (time<(time_trial[peaks[i]]+args.width))
+            ax[i].errorbar(24*(time[mask] - time_trial[peaks[i]]), flux[mask], yerr= flux_err[mask], 
+                            fmt='k.', ecolor='grey', elinewidth=0.1, capsize=0.1,capthick=0.1, markersize=0.7)
+            
+            t_ = np.linspace(np.min(time[mask]),np.max(time[mask]), 1000)
+            model = openlc.binarystar.lc(t_,t_zero=time_trial[peaks[i]],runtime=runtime,        
+                                    period = args.period,
+                                    radius_1=args.radius_1, k = args.k, incl=np.arccos(args.radius_1*args.b),
+                                    e=args.e, w = args.w,
+                                    c = args.ldc_1, alpha =args.ldc_2,
+                                    cadence=0, noversample=10,
+                                    light_3=args.light_3,
+                                    ld_law = -2,
+                                    accurate_tp=1)
+            wt_interped = np.interp(t_, time[mask], wt[mask])
+            ax[i].plot(24*(t_-time_trial[peaks[i]]), wt_interped, c='r', lw=1, ls='--')
+            ax[i].plot(24*(t_-time_trial[peaks[i]]), model*wt_interped, c='r', lw=1)
+            ax[i].text(0.04,0.98, str(i+1), fontsize=10,transform=ax[i].transAxes,
+                    verticalalignment='top', horizontalalignment='left', bbox=props)
+            ax[i].set(xlabel='Time - {:.5f}'.format(time_trial[peaks[i]]), ylabel='Flux')
+
+        if nrows>1:
+            while True:
+                i += 1
+                idx = i%5
+                if idx!=0: ax[i].set_axis_off()
+                else : break
+                
+        plt.tight_layout()
+        plt.savefig('{:}/{:}_events_wt_trimmed_peaks.png'.format(args.output_dir,args.name), dpi=200)
+        plt.close()
+
+
+    if args.period_search:
+        print('Searching period space')
+        # Period search
+        periods, dispersion = openlc.binarystar.utils.phase_dispersion(time_trial, 
+                                                                    peaks, 
+                                                                    periods = np.linspace(args.period_min,args.period_max,args.period_samples),
+                                                                    runtime=runtime)
+        
+        fig, ax = plt.subplots(1,1, figsize=(7,3))
+        ax.loglog(periods, dispersion, c='k', lw=1)
+        ax.set(ylabel = r'$PD$', xlabel='Period [day]')
+        ax.xaxis.set_minor_formatter(mticker.ScalarFormatter())
+        ax.xaxis.set_major_formatter(mticker.ScalarFormatter())
+        ax.yaxis.set_minor_formatter(mticker.ScalarFormatter())
+
+        plt.tight_layout()
+        plt.savefig('{:}/{:}_phase_dispersion.png'.format(args.output_dir,args.name), dpi=200)
+        plt.close()
+
+        print('Best period is {:.5f}'.format(periods[np.argmin(dispersion)]))

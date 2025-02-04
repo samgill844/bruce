@@ -94,3 +94,11 @@ void template_match(
     const int ld_law,
     const int accurate_tp,
     const double jitter, const int offset);
+void compute_dispersion(
+    const double* time_trial,
+    const int* peaks,
+    const double* periods,
+    double* dispersion,
+    const int num_peaks,
+    const int num_periods
+);
