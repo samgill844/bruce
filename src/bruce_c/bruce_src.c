@@ -796,6 +796,101 @@ void template_match(
 
 
 
+double compute_width(double period, double radius_1, double k, double b) {
+    double numerator = (1 + k) * (1 + k) - (b * b);
+    double denominator = 1 - (b * b * radius_1 * radius_1);
+    double argument = radius_1 * sqrt(numerator / denominator);
+
+    if (argument < -1.0 || argument > 1.0) {
+        fprintf(stderr, "Error: arcsin argument out of range: %f\n", argument);
+        return NAN;  // Return NaN if the value is out of domain
+    }
+
+    double width = period * asin(argument) / M_PI;
+    return width;
+}
+
+
+
+void print_progress(double progress) {
+    // int barWidth = 50;
+    // printf("[");
+    // int pos = (int)(barWidth * progress);
+    // for (int i = 0; i < barWidth; ++i) {
+    //     if (i < pos) printf("=");
+    //     else if (i == pos) printf(">");
+    //     else printf(" ");
+    // }
+    // printf("] %.2f%%\r", progress * 100);
+    printf("%.2f%%\r", progress * 100);
+    fflush(stdout);
+}
+
+void template_match_batch(
+    const double *time_trial_g, double *DeltaL_trial_g, 
+    const double *time_g, const double *flux_g, const double *flux_err_g,  const double *normalisation_model, 
+    const int size_trial, const int size,
+    const double period,
+    const double * radius_1, const double *k,const double *incl,
+    const int size_radius_1,const int size_k,const int size_incl, 
+    const double e, const double w,
+    const double c, const double alpha,
+    const double cadence, const int noversample,
+    const double light_3,
+    const int ld_law,
+    const int accurate_tp,
+    const double jitter, const int offset)
+{
+    // Now DeltaL_trial_g is of shape [size_trial, radius_1, k, incl] (or 1d the sum of them all)
+    //                                [ gid,       i,        j, k]
+    //double model;
+    #pragma omp parallel
+    {
+    int progress=0;
+
+    #pragma omp for
+    for (int gid=0; gid < size_trial; gid++)
+    {
+        for (int i=0;i<size_radius_1;i++)
+        {
+            for (int j=0;j<size_k;j++)
+            {
+                for (int h=0;h<size_incl;h++)
+                {
+                    double b = cos(incl[h])/radius_1[i];
+                    double width = compute_width(period, radius_1[i], k[j], b);
+                    DeltaL_trial_g[gid] = 0.0;  // Ensure clean initialization
+                    // Get the first model
+                    for (int x=0; x < size; x++)
+                    {
+                        int index = gid * (size_radius_1 * size_k * size_incl) + i * (size_k * size_incl) + j * size_incl + h;
+                        if (fabs(time_trial_g[gid] - time_g[x]) < (width/2))
+                        {
+                            double model = normalisation_model[x]*_lc(time_g[x],
+                                            time_trial_g[gid], period,
+                                            radius_1[i], k[j], incl[h],
+                                            e,w,
+                                            c,alpha,
+                                            cadence, noversample,
+                                            light_3,
+                                            ld_law,
+                                            accurate_tp);
+                            DeltaL_trial_g[index] += 2*(bruce_loglike(flux_g[x], flux_err_g[x], model, jitter, offset) - bruce_loglike(flux_g[x], flux_err_g[x], normalisation_model[x], jitter, offset)); 
+
+                            #pragma omp atomic 
+                            progress++;
+                            
+
+                            print_progress((double)progress/(size_trial*size_radius_1*size_k*size_incl));
+                        }
+                    }
+                }   
+            }
+        } 
+    }
+    }
+}
+
 
 
 
@@ -1174,62 +1269,29 @@ void convolve_1d_fast(const double *x, const double *y, double *output_signal,
 }
 
 
-// __kernel void convolve_1d(__global const double *x,
-//                           __global const double *y,
-//                           __global double *output_signal,
-//                           const double kernel_length,
-//                           const int signal_length)
-// {
-//     int gid = get_global_id(0); // Get the index of the current thread
-    
-//     if (gid >= signal_length)
-//         return;
-
-
-//     // Determine the range for the window, shrinking near the boundaries
-//     int start = gid;
-//     int end = gid;
-
-//     // Find the appropriate window range
-//     while (start > 0 && x[gid] - x[start] < kernel_length / 2.0) {
-//         start--;
-//     }
-//     while (end < signal_length - 1 && x[end] - x[gid] < kernel_length / 2.0) {
-//         end++;
-//     }
-
-//     int count=0;
-//     double result=0;
-//     double half_signal=kernel_length/2;
-//     for (int i=start; i<end; i++)
-//     {
-//         if ((x[gid]-x[i])<half_signal)
-//         {
-//             result = result + y[i];
-//             count ++;
-//         }
-//     }
-
-//     // Store result in the output signal
-//     output_signal[gid] =result / ((double) count);//
-// }
-
 
 
 void compute_dispersion(
     const double* time_trial,
     const int* peaks,
     const double* periods,
+    const double* time,
+    const double* flux,
+    const double* flux_err,
     double* dispersion,
+    double* L,
     const int num_peaks,
-    const int num_periods
+    const int num_periods,
+    const int time_size
 ) {
+    double phase_width=0.025586783736075144;
+
     #pragma omp parallel for
-    for (int i = 0; i < num_periods; i++) {        
+    for (int i = 0; i < num_periods; i++) 
+    {        
         // Compute pairwise differences and sum them
         for (int j = 0; j < num_peaks; j++) {
             for (int k = j + 1; k < num_peaks; k++) {
-                //if (peaks[j] < 0 || peaks[j] >= num_peaks || peaks[k] < 0 || peaks[k] >= num_peaks) continue;
                 double phase_j = fmod(time_trial[peaks[j]] / periods[i], 1.0);
                 double phase_k = fmod(time_trial[peaks[k]] / periods[i], 1.0);
                 double diff = fabs(phase_j - phase_k);
@@ -1237,5 +1299,26 @@ void compute_dispersion(
                 dispersion[i] += pairwise_diff;
             }
         }
+
+        /*
+        // Now factor in chi-squared
+        double phase_mean=0.;
+        for (int j = 0; j < num_peaks; j++) { phase_mean += fmod(time_trial[peaks[j]] / periods[i], 1.0);};
+        phase_mean /= num_peaks;
+        for (int j = 0; j < time_size; j++)
+        {
+            double phase = fmod(time[j] , periods[i]);
+            if (abs(phase-phase_width)<(phase_width/2))
+            double model = _lc(phase,
+                                phase_mean, 1,
+                                0.08, 0.08,1.538790862943446,
+                                0, 1.5707963267948966,
+                                0.7, 0.4,
+                                0, 10,
+                                0,
+                                2, 1);
+            L[i] -= 2*bruce_loglike(flux[i], flux_err[i] , model, 0,0);
+        }
+        */
     }
 }

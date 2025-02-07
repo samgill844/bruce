@@ -990,13 +990,152 @@ static PyObject *template_match_reduce(PyObject *self, PyObject *args)
 
 
 
+
+
+
+
+
+
+
+
+static PyObject *template_match_batch_reduce(PyObject *self, PyObject *args) 
+{
+    // Allocation
+    PyObject * time_trial_obj, *time_obj, *flux_obj, *flux_err_obj, *normalisation_model_obj, *radius_1_obj, *k_obj, *incl_obj;
+    double period, e, w, c, alpha, cadence, light_3, jitter;
+    int noversample, ld_law, accurate_tp, offset;
+    // printf("I got here");
+    // fflush(stdout);
+    // Parse input arguments
+    if (!PyArg_ParseTuple(args, "OOOOOdOOOdddddidiidi", &time_trial_obj,
+                                                        &time_obj, &flux_obj, &flux_err_obj, &normalisation_model_obj,
+                                                        &period,
+                                                        &radius_1_obj, &k_obj, &incl_obj,
+                                                        &e, &w,
+                                                        &c, &alpha,
+                                                        &cadence, &noversample,
+                                                        &light_3, 
+                                                        &ld_law, 
+                                                        &accurate_tp,
+                                                        &jitter, &offset )) {
+        return NULL;
+    }
+
+    // printf("I parsed");
+    // fflush(stdout);
+    // Convert input arrays to NPY_DOUBLE if not already of that type
+    PyArrayObject *time_trial_array = (PyArrayObject *)PyArray_FROMANY(time_trial_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
+    PyArrayObject *time_array = (PyArrayObject *)PyArray_FROMANY(time_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
+    PyArrayObject *flux_array = (PyArrayObject *)PyArray_FROMANY(flux_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
+    PyArrayObject *flux_err_array = (PyArrayObject *)PyArray_FROMANY(flux_err_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
+    PyArrayObject *normalisation_model_array = (PyArrayObject *)PyArray_FROMANY(normalisation_model_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
+    PyArrayObject *radius_1_array = (PyArrayObject *)PyArray_FROMANY(radius_1_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
+    PyArrayObject *k_array = (PyArrayObject *)PyArray_FROMANY(k_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
+    PyArrayObject *incl_array = (PyArrayObject *)PyArray_FROMANY(incl_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
+
+
+    if (!time_trial_array || !time_array || !flux_array || !flux_err_array || !normalisation_model_array || !radius_1_array || !k_array || !incl_array) {
+        PyErr_SetString(PyExc_TypeError, "All input arrays must be 1D numpy arrays of type numpy.float64.");
+        Py_XDECREF(time_trial_array);
+        Py_XDECREF(time_array);
+        Py_XDECREF(flux_array);
+        Py_XDECREF(flux_err_array);
+        Py_XDECREF(normalisation_model_array);
+        Py_XDECREF(radius_1_array);
+        Py_XDECREF(k_array);
+        Py_XDECREF(incl_array);
+        return NULL;
+    }
+    // printf("I formatted");
+    // fflush(stdout);
+
+    // Lets get the sizes
+    int time_trial_size = (int)PyArray_SIZE(time_trial_array);
+    int time_size = (int)PyArray_SIZE(time_array);
+    int radius_1_size = (int)PyArray_SIZE(radius_1_array);
+    int k_size = (int)PyArray_SIZE(k_array);
+    int incl_size = (int)PyArray_SIZE(incl_array);
+
+    // Now lets allocate DeltaL
+    npy_intp dims[1] = {time_trial_size*radius_1_size*k_size*incl_size};
+    PyArrayObject *DeltaL_array = (PyArrayObject *)PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+    // printf("I got the sizes");
+    // fflush(stdout);
+
+    // Lets get the double pointers
+    const double *time_trial = (const double *)PyArray_DATA(time_trial_array);
+    double *DeltaL = (double *)PyArray_DATA(DeltaL_array);
+    const double *time = (const double *)PyArray_DATA(time_array);
+    const double *flux = (const double *)PyArray_DATA(flux_array);
+    const double *flux_err = (const double *)PyArray_DATA(flux_err_array);
+    const double *normalisation_model = (const double *)PyArray_DATA(normalisation_model_array);
+    const double *radius_1 = (const double *)PyArray_DATA(radius_1_array);
+    const double *k = (const double *)PyArray_DATA(k_array);
+    const double *incl = (const double *)PyArray_DATA(incl_array);
+
+    // printf("I converted to douvle *");
+    // fflush(stdout);
+
+    // Now lets make the call
+    template_match_batch(
+        time_trial, DeltaL,
+        time, flux, flux_err, normalisation_model, 
+        time_trial_size, time_size,
+        period,
+        radius_1, k, incl,
+        radius_1_size,k_size,incl_size,
+        e, w,
+        c, alpha,
+        cadence, noversample,
+        light_3,
+        ld_law,
+        accurate_tp,
+        jitter, offset);
+
+    // create the 4d array
+    npy_intp dims4d[4] = {time_trial_size, radius_1_size, k_size, incl_size};
+    PyArray_Dims new_dims = {dims4d, 4};
+    PyObject* reshaped_array = PyArray_Newshape((PyArrayObject*) DeltaL_array, &new_dims, NPY_ANYORDER);
+
+    // Decrease the references
+    Py_DECREF(time_trial_array);
+    Py_DECREF(time_array);
+    Py_DECREF(flux_array);
+    Py_DECREF(flux_err_array);
+    Py_DECREF(normalisation_model_array);
+    Py_DECREF(radius_1_array);
+    Py_DECREF(k_array);
+    Py_DECREF(incl_array);
+    Py_DECREF(DeltaL_array);
+
+    // Return the array
+    return (PyObject *) reshaped_array;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 static PyObject *phase_dispersion(PyObject *self, PyObject *args) 
 {
     // Allocation
-    PyObject * time_trial_obj, * peaks_obj,  *periods_obj;
+    PyObject * time_trial_obj, * peaks_obj,  *periods_obj, *time_obj, *flux_obj, *flux_err_obj;
 
     // Parse input arguments
-    if (!PyArg_ParseTuple(args, "OOO", &time_trial_obj,&peaks_obj,&periods_obj)) {
+    if (!PyArg_ParseTuple(args, "OOOOOO", &time_trial_obj,&peaks_obj,&periods_obj, &time_obj, &flux_obj, &flux_err_obj)) {
         return NULL;
     }
 
@@ -1004,36 +1143,54 @@ static PyObject *phase_dispersion(PyObject *self, PyObject *args)
     PyArrayObject *time_trial_array = (PyArrayObject *)PyArray_FROMANY(time_trial_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
     PyArrayObject *peaks_array = (PyArrayObject *)PyArray_FROMANY(peaks_obj, NPY_INT, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
     PyArrayObject *periods_array = (PyArrayObject *)PyArray_FROMANY(periods_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
+    PyArrayObject *time_array = (PyArrayObject *)PyArray_FROMANY(time_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
+    PyArrayObject *flux_array = (PyArrayObject *)PyArray_FROMANY(flux_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
+    PyArrayObject *flux_err_array = (PyArrayObject *)PyArray_FROMANY(flux_err_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
 
     // Lets get the sizes
     int peaks_size = (int)PyArray_SIZE(peaks_array);
     int periods_size = (int)PyArray_SIZE(periods_array);
+    int time_size = (int)PyArray_SIZE(time_array);
 
     // Now lets allocate the dispersion array (zeros)
     npy_intp dims[1] = {periods_size};
     PyArrayObject *dispersion_array = (PyArrayObject *)PyArray_ZEROS(1, dims, NPY_DOUBLE, 0);
+    PyArrayObject *L_array = (PyArrayObject *)PyArray_ZEROS(1, dims, NPY_DOUBLE, 0);
 
     // Now cast to doubles
     const double *time_trial = (const double *)PyArray_DATA(time_trial_array);
     const int *peaks = (const int *)PyArray_DATA(peaks_array);
     const double *periods = (const double *)PyArray_DATA(periods_array);
+    const double *time = (const double *)PyArray_DATA(time_array);
+    const double *flux = (const double *)PyArray_DATA(flux_array);
+    const double *flux_err = (const double *)PyArray_DATA(flux_err_array);
     double *dispersion = (double *) PyArray_DATA(dispersion_array);
+    double *L = (double *) PyArray_DATA(L_array);
 
     // Now make the call
     compute_dispersion(time_trial,
         peaks,
         periods,
-        dispersion,
+        time, flux, flux_err,
+        dispersion, L,
         peaks_size,
-        periods_size);
+        periods_size, time_size);
+
 
     // Decrease the references
     Py_DECREF(time_trial_array);
     Py_DECREF(peaks_array);
     Py_DECREF(periods_array);
+    Py_DECREF(time_array);
+    Py_DECREF(flux_array);
+    Py_DECREF(flux_err_array);
 
-    // Return the array
-    return (PyObject *) dispersion_array;
+
+   // Return result as a tuple
+    PyObject *result = Py_BuildValue("NN",
+                                     PyArray_Return(dispersion_array),
+                                     PyArray_Return(L_array));
+    return result;
 }
 
 
@@ -1092,8 +1249,11 @@ static PyMethodDef bruce_c_methods[] = {
     {"check_proximity_of_timestamps", check_proximity_of_timestamps, METH_VARARGS, "Check the timestamps are within 0.5*width of an observation."},
     {"template_match_reduce", template_match_reduce, METH_VARARGS, "Template match a lighcurve."},
     {"phase_dispersion", phase_dispersion, METH_VARARGS, "Calculate the dispersion."},
+    {"template_match_batch_reduce", template_match_batch_reduce, METH_VARARGS, "Template match batch [radius_1, k, incl]."},
     {NULL, NULL, 0, NULL}  // Sentinel
 };
+
+
 
 // Define the module
 static struct PyModuleDef bruce_c_module = {

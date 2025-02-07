@@ -98,7 +98,27 @@ void compute_dispersion(
     const double* time_trial,
     const int* peaks,
     const double* periods,
+    const double* time,
+    const double* flux,
+    const double* flux_err,
     double* dispersion,
+    double* L,
     const int num_peaks,
-    const int num_periods
-);
+    const int num_periods,
+    const int time_size
+) ;
+
+void template_match_batch(
+    const double *time_trial_g, double *DeltaL_trial_g, 
+    const double *time_g, const double *flux_g, const double *flux_err_g,  const double *normalisation_model, 
+    const int size_trial, const int size,
+    const double period,
+    const double * radius_1, const double *k,const double *incl,
+    const int size_radius_1,const int size_k,const int size_incl, 
+    const double e, const double w,
+    const double c, const double alpha,
+    const double cadence, const int noversample,
+    const double light_3,
+    const int ld_law,
+    const int accurate_tp,
+    const double jitter, const int offset);
