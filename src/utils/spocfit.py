@@ -1034,7 +1034,8 @@ class Window():
 
   
 # Create a plot with some random data
-if __name__ == '__main__':
+
+def main():
 
     if (len(sys.argv)==2) and (sys.argv[1][-5:]!='.fits'):
         # we will use spocget to download the tic id
@@ -1061,3 +1062,7 @@ if __name__ == '__main__':
     pg.exec()
 
     exit()
+
+
+if __name__ == '__main__':
+    main()

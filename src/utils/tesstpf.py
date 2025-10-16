@@ -419,7 +419,8 @@ class Window():
 
 
 
-if __name__ == '__main__':
+def main():
+
     # Parse the args
     args = parse_args()
 
@@ -819,3 +820,10 @@ if __name__ == '__main__':
 
     pg.exec()
     exit()
+
+
+
+
+
+if __name__ == '__main__':
+    main()

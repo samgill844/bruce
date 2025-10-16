@@ -125,13 +125,13 @@ class ambiguous_period:
                 delta_L[i] = model_L - null_L 
         return delta_L
 
-    def plot_aliases(self,  phot_data=[]):
+    def plot_aliases(self,  phot_data=[], phot_data_labels=[]):
         epoch = self.events[0].de_get_epoch()
         width = self.events[0].de_transit_width()
                 
         
         plt.rcParams['font.size'] = 3
-        fig, ax = plt.subplots(self.aliases.shape[0], 1+len(phot_data), figsize=(2,0.8*self.aliases.shape[0]))
+        fig, ax = plt.subplots(self.aliases.shape[0], 1+len(phot_data), figsize=(2 + 2*len(phot_data),0.8*self.aliases.shape[0]))
         ax = np.atleast_2d(ax)
         if len(phot_data)==0 : ax = ax.T
 
@@ -145,7 +145,32 @@ class ambiguous_period:
         #     event_mask_bin = event_mask_bin | ((t_bin>(self.events[i].de_get_epoch() - self.events[i].de_transit_width()/2)) &  (t_bin<(self.events[i].de_get_epoch() + self.events[i].de_transit_width()/2)))
         # event_mask_bin = ~event_mask_bin
 
-    
+
+        # Let's create the color mask
+        alias_colours = np.empty((self.aliases.shape[0], 1 + len(phot_data)), dtype='<U11')
+        alias_colours[:] = ''
+
+        # Base red mask
+        alias_colours[self.delta_L[0] < (-self.height)] = 'xkcd:salmon'
+
+        for i in range(1, len(phot_data) + 1):
+            # Lets get the red mask 
+            red_mask = (alias_colours[:, :i]=='xkcd:salmon').any(axis=1) | (self.delta_L[i] < (-self.height))
+            if True in (self.delta_L[i] >self.height):
+                red_mask |= ~(self.delta_L[i] >self.height)
+
+            green_mask = ~(alias_colours[:, :i]=='xkcd:salmon').any(axis=1) & (self.delta_L[i] >self.height)
+            alias_colours[red_mask, i:] = 'xkcd:salmon'
+            alias_colours[green_mask, i:] = 'xkcd:green'
+
+        for i in range(alias_colours.shape[0]):
+            for j in range(alias_colours.shape[1]):
+                if len(alias_colours[i,j])>1 : ax[i,j].set_facecolor(alias_colours[i,j])
+                title = 'Alias P{:} [{:.3f} d]\n{:}'.format(self.aliases[i], self.max_period/self.aliases[i], phot_data_labels[j])
+                ax[i,j].set(xlabel='PHASE', ylabel='FLUX', title=title)
+
+        
+
         for i in tqdm(range(self.aliases.shape[0])):
             phase = bruce.data.phase_times(self.data.time, epoch , self.max_period/self.aliases[i], phase_offset=0.2)
             # print(self.data.flux[self.event_mask])
@@ -162,11 +187,6 @@ class ambiguous_period:
             phase_width = width/(self.max_period/self.aliases[i])
             ax[i][0].set_xlim(-phase_width,phase_width)
             
-
-            if self.delta_L[0][i] > self.height : ax[i][0].set_facecolor('xkcd:green')
-            if self.delta_L[0][i] < (-self.height) : ax[i][0].set_facecolor('xkcd:salmon')
-            ax[i][0].set(xlabel='Phase', ylabel='Flux', ylim=ylim)
-            ax[i][0].set_title('Alias P{:} [{:.3f} d]'.format(self.aliases[i], self.max_period/self.aliases[i]), fontsize=3)
             
             
             for j in range(len(phot_data)):
@@ -184,8 +204,8 @@ class ambiguous_period:
                 ax[i][j+1].set_xlim(-phase_width,phase_width)
                 ax[i][j+1].set_ylim(ylim)
 
-                if self.delta_L[j+1][i] > self.height : ax[i][j+1].set_facecolor('xkcd:green')
-                if self.delta_L[j+1][i] < (-self.height) : ax[i][j+1].set_facecolor('xkcd:salmon')
+                # if self.delta_L[j+1][i] > self.height : ax[i][j+1].set_facecolor('xkcd:green')
+                # if self.delta_L[j+1][i] < (-self.height) : ax[i][j+1].set_facecolor('xkcd:salmon')
 
         plt.tight_layout()
         return fig, ax

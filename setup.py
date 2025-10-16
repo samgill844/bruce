@@ -3,9 +3,11 @@ import sys
 import os
 import numpy
 import platform
+import subprocess
 
 # Detect platform and compiler
 system = platform.system().lower()
+machine = platform.machine().lower()
 compiler = os.environ.get("CC", "")
 is_clang = "clang" in compiler or system == "darwin"
 
@@ -18,22 +20,29 @@ if is_clang:
     # macOS Clang (Xcode) often lacks OpenMP, but Homebrew LLVM supports it
     compile_args += ["-Xpreprocessor", "-fopenmp"]
     link_args += ["-lomp"]
+
+    # Add Homebrew LLVM paths if they exist
     omp_include = "/usr/local/include"
     omp_lib = "/usr/local/lib"
     if os.path.exists(omp_include):
-        compile_args += [f"-I{omp_include}"]
+        compile_args.append(f"-I{omp_include}")
     if os.path.exists(omp_lib):
-        link_args += [f"-L{omp_lib}"]
+        link_args.append(f"-L{omp_lib}")
 else:
-    # GCC and compatible compilers
+    # GCC or compatible
     compile_args += ["-fopenmp"]
     link_args += ["-fopenmp"]
 
-# Add architecture optimizations if supported
+# Add architecture-specific optimizations safely
 if not is_clang:
-    compile_args += ["-march=native"]
+    compile_args.append("-march=native")
 else:
-    compile_args += ["-mavx2"]
+    # Only use x86-specific flags on Intel Macs
+    if machine in ("x86_64", "amd64"):
+        compile_args.append("-mavx2")
+    # For ARM (Apple Silicon), prefer NEON or SVE (auto-vectorization handled by compiler)
+    elif machine in ("arm64", "aarch64"):
+        compile_args.append("-mcpu=apple-m1")
 
 bruce_c_module = Extension(
     "bruce_c",
@@ -46,9 +55,16 @@ bruce_c_module = Extension(
 setup(
     name="bruce",
     version="1.0.0",
-    description="A fast-as-hell binary star model using NumPy-C API with OpenM.P",
+    description="A fast-as-hell binary star model using NumPy-C API with OpenMP",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     ext_modules=[bruce_c_module],
-    scripts=["utils/lcmatch", "utils/tesstpf", "utils/spocfit"],
+
+    entry_points={
+        "console_scripts": [
+            "lcmatch = utils.lcmatch:main",
+            "tesstpf = utils.tesstpf:main",
+            "spocfit = utils.spocfit:main",
+        ],
+    },
 )
