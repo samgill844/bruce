@@ -1,425 +1,424 @@
-#!/Users/sam/anaconda3/bin/ipython
-from pyqtgraph.Qt import QtGui
-import numpy as np, os#, pyqtgraph as pg
-from astropy.table import Table, Column
-from scipy.stats import median_abs_deviation
-import pyqtgraph as pg
-from astropy.io import fits
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QLabel, QLineEdit , QCheckBox
-from pyqtgraph.dockarea import *
-from astroquery.mast import Catalogs
-import warnings
-warnings.filterwarnings("ignore")
-from astroquery.mast import Catalogs
-from astropy.wcs import WCS 
-import argparse
-from astroquery.mast import Tesscut
-import lightkurve
-
-from astropy.coordinates import SkyCoord
-
-
-import urllib.request, json , glob, zipfile
-from astroquery.mast import Catalogs
-import tempfile
-
-def parse_args():
-    description = '''A program to searc spoc lightcurves for transit signals'''
-
-    # Argument parser
-    parser = argparse.ArgumentParser('spocsearch', description=description)
-
-    parser.add_argument('-e',
-                    "--tic_id",
-                    help='The filename of the SPOC lightcurve',
-                    default=None)
-
-    parser.add_argument('-a', 
-                    '--sector',
-                    help='The sector',
-                    default=None, type=int)
-
-    parser.add_argument('-b', 
-                    '--size',
-                    help='The size of the cutout in pixels.',
-                    default=10, type=int)
-
-    parser.add_argument('-c', 
-                    '--mask',
-                    help='The pixel mask.',
-                    default=None, type=str)
-
-    parser.add_argument('-d',
-                        '--coordinates',
-                        help = 'The coordinates of the target.',
-                        type = float,
-                        nargs='+',
-                        default=[])
-    
-
-    parser.add_argument('--tica', action="store_true", default=False)
-    parser.add_argument('--all', action="store_true", default=False)
-    parser.add_argument('--nogui', action="store_true", default=False)
-
-
-    return parser.parse_args()
-
-
-class Window():
-    def __init__(self, TIME, FLUX,QUALITY_MASK, ticid, wcs, sector, mask, filename, type):
-        # Set the defaults
-        self.TIME = TIME
-        self.FLUX = FLUX
-        self.QUALITY_MASK = QUALITY_MASK
-        self.ticid = ticid 
-        self.wcs = wcs
-        self.sector = sector
-        self.lightkurve = lightkurve.targetpixelfile.TessTargetPixelFile(filename)
-        self.lightkurve.row 
-
-        if mask is None : self.calculate_pixel_aperture_mask()
-        else : self.pixel_aperture_mask = np.load(mask)
-
-        # Create the GUI
-        self.app = pg.mkQApp("TESS TPF") 
-        self.win = QtGui.QMainWindow()
-
-
-        #################################################################
-        # Create the window and the dock area
-        #################################################################
-        #self.area = DockArea()
-        #self.win.setCentralWidget(self.area)
-        #self.win.resize(1300,800)
-        #self.win.showFullScreen()
-        self.win.showMaximized()
-        self.win.setStyleSheet('QCheckBox {background-color: #7BAD98}')
-
-        title_text = '{:} S{:02} TPF [TIC-{:}]'.format(type, sector, self.ticid)
-        self.win.setWindowTitle(title_text)
-
-        #################################################################
-        # Create the first dock which holds the plots in
-        #################################################################
-        #self.d1 = Dock('TIC-{:}'.format(ticid), size=(1000,800))     ## give this dock the minimum possible size
-
-        #################################################################
-        # Add the docks
-        #################################################################
-        #self.area.addDock(self.d1)      ## place d1 at left edge of dock area (it will fill the whole space since there are no other docks yet)
-        #self.area.addDock(self.d_frame, 'right', self.d1 )     ## place d2 at right edge of dock area
-
-
-        #################################################################
-        # Create the image view
-        ################################################################# 
-        self.image_view = pg.ImageView()
-        self.win.setCentralWidget(self.image_view)
-        self.image_view_plotview = self.image_view.getView()
-
-
-        self.image_view_roi = self.image_view.getRoiPlot()
-        if args.tica: self.image_view_roi.setLabel('left', 'Flux [e]')
-        else :        self.image_view_roi.setLabel('left', 'Flux [e/s]')
-        self.image_view_roi.setLabel('bottom', 'BTJD')
-        self.image_view_roi.setPos(3,3)
-
-        self.image_view.setLevels(-500, 2000)
-
-        self.lr = pg.LinearRegionItem([self.TIME[0], self.TIME[100]], bounds=[np.min(self.TIME), np.max(self.TIME)], movable=True)
-        self.image_view_roi.addItem(self.lr)
-        self.lr.sigRegionChanged.connect(self.update_plots)
-
-        # Create the pixel lines
-        self.pixel_lightcurve_pen = pg.mkPen((255,0,0,100))
-        self.pixel_lines = [pg.PlotCurveItem(x=[], y=[],  pen =self.pixel_lightcurve_pen) for i in range(self.FLUX.shape[1]*self.FLUX.shape[2])]
-        for line in self.pixel_lines : self.image_view_plotview.addItem(line)
-
-        # Create the centroid scatter item
-        self.centroid_scatter_plot_item_in = pg.ScatterPlotItem(size=10, pen=pg.mkPen(None), brush=pg.mkBrush('blue'))
-        self.centroid_scatter_plot_item_in.setZValue(10)
-        self.image_view_plotview.addItem(self.centroid_scatter_plot_item_in)
-        self.centroid_scatter_plot_item_out = pg.ScatterPlotItem(size=10, pen=pg.mkPen(None), brush=pg.mkBrush('red'))
-        self.centroid_scatter_plot_item_out.setZValue(9)
-        self.image_view_plotview.addItem(self.centroid_scatter_plot_item_out)
-
-        # Now create the checkbox to go with it
-        self.plot_lc_check_box = QCheckBox("Plot pixel lightcurves")
-        self.image_view.scene.addWidget(self.plot_lc_check_box)
-        self.plot_lc_check_box.stateChanged.connect(self.plot_pixel_lcs)
-        self.plot_lc_check_box.setStyleSheet('QCheckBox {background-color: #007BAD98; color: white}')
-
-    
-        # Create the source scatter item
-        self.source_pen = pg.mkPen((0,255,0,100))
-        self.source_scatter = pg.ScatterPlotItem(size=10, pen=self.source_pen)
-        self.image_view_plotview.addItem(self.source_scatter)
-
-        # Create the text
-        self.sources_text = []
-
-        # Make the source check boz
-        self.plot_sources_check_box = QCheckBox("Plot sources")
-        self.image_view.scene.addWidget(self.plot_sources_check_box)
-        self.plot_sources_check_box.move(0, 20)
-        self.plot_sources_check_box.stateChanged.connect(self.plot_sources)
-        self.plot_sources_check_box.setStyleSheet('QCheckBox {background-color: #007BAD98; color: white}')
-
-        # Now add the Tmin box 
-        self.tmag_min_box = QLineEdit('0')
-        self.tmag_min_cahce = '0'
-        self.image_view.scene.addWidget(self.tmag_min_box)
-        self.tmag_min_box.move(80, 40)
-        self.tmag_min_box.setFixedWidth(50)
-
-        self.tmag_minlabel = QLabel("min Tmag")
-        self.image_view.scene.addWidget(self.tmag_minlabel)
-        self.tmag_minlabel.move(0, 40)
-        self.tmag_minlabel.setStyleSheet('QLabel {background-color: #007BAD98; color: white}')
-
-        # Now add the Tmax box 
-        self.tmag_max_box = QLineEdit('16')
-        self.tmag_max_cache = '16'
-        self.image_view.scene.addWidget(self.tmag_max_box)
-        self.tmag_max_box.move(80, 60)
-        self.tmag_max_box.setFixedWidth(50)
-
-        self.tmag_maxlabel = QLabel("Max Tmag")
-        self.image_view.scene.addWidget(self.tmag_maxlabel)
-        self.tmag_maxlabel.move(0, 60)
-        self.tmag_maxlabel.setStyleSheet('QLabel {background-color: #007BAD98; color: white}')
-        
-        # Make the pixel mask box
-        self.pixel_mask_check_box = QCheckBox("Pixel mask")
-        self.image_view.scene.addWidget(self.pixel_mask_check_box)
-        self.pixel_mask_check_box.move(0, 80)
-        self.pixel_mask_check_box.stateChanged.connect(self.plot_pixel_aperture)
-        self.pixel_mask_check_box.setStyleSheet('QCheckBox {background-color: #007BAD98; color: white}')
-        self.image_view.scene.sigMouseClicked.connect(self.update_mask_on_click)
-
-
-        # Now plot the LC 
-        self.plot_lc_button = QtGui.QPushButton('Plot pixel lightcurve')
-        self.image_view.scene.addWidget(self.plot_lc_button)
-        self.plot_lc_button.move(0, 100)
-        self.plot_lc_button.setStyleSheet('QPushButton {background-color: #007BAD98; color: white}')
-        self.plot_lc_button.clicked.connect(self.plot_pixel_lightcurve)
-
-        # Now add the save pixel mask
-        self.save_pixel_mask_button = QtGui.QPushButton('Save pixel mask')
-        self.image_view.scene.addWidget(self.save_pixel_mask_button)
-        self.save_pixel_mask_button.move(0, 130)
-        self.save_pixel_mask_button.clicked.connect(self.save_pixel_mask)
-        self.save_pixel_mask_button.setStyleSheet('QPushButton {background-color: #007BAD98; color: white}')
-
-        # Now add the save lightcurve button
-        self.save_lightcurve_button = QtGui.QPushButton('Save lightcurve')
-        self.image_view.scene.addWidget(self.save_lightcurve_button)
-        self.save_lightcurve_button.move(0, 160)
-        self.save_lightcurve_button.clicked.connect(self.save_lightcurve)
-        self.save_lightcurve_button.setStyleSheet('QPushButton {background-color: #007BAD98; color: white}')
-
-        # Now add the spocfit  button
-        self.fit_lightcurve_button = QtGui.QPushButton('Fit the lightcurve')
-        self.image_view.scene.addWidget(self.fit_lightcurve_button)
-        self.fit_lightcurve_button.move(0, 190)
-        self.fit_lightcurve_button.clicked.connect(self.fit_lightcurve)
-        self.fit_lightcurve_button.setStyleSheet('QPushButton {background-color: #007BAD98; color: white}')
-
-
-        # Now add the fluxweight  button
-        self.flux_weight_check_box = QCheckBox("Plot the flux weighting")
-        self.image_view.scene.addWidget(self.flux_weight_check_box)
-        self.flux_weight_check_box.move(0, 220)
-        self.flux_weight_check_box.stateChanged.connect(self.plot_flux_weighting)
-        self.flux_weight_check_box.setStyleSheet('QCheckBox {background-color: #007BAD98; color: white}')
-
-
-        # Finally set anti alias
-        pg.setConfigOptions(antialias=True)
-
-        self.win.show()
-
-
-    def update_plots(self,):
-        self.plot_flux_weighting()
-        self.plot_pixel_lcs()
-
-    def plot_flux_weighting(self,):
-        if self.flux_weight_check_box.isChecked():
-            t_low, t_high = self.lr.getRegion()
-            width = t_high - t_low
-            inmask = (self.TIME > t_low) & (self.TIME < t_high)
-            outmask = ((self.TIME > (t_low-width)) & (self.TIME < (t_high-width))) | ((self.TIME > (t_low+width)) & (self.TIME < (t_high+width)))
-            x, y = self.lightkurve.estimate_centroids()
-            x = np.array(x,dtype=np.float64) - self.lightkurve.column + 1
-            y = np.array(y,dtype=np.float64) - self.lightkurve.row 
-            self.centroid_scatter_plot_item_in.setData(x=x[inmask],y=y[inmask])
-            self.centroid_scatter_plot_item_out.setData(x=x[outmask],y=y[outmask])
-        else : 
-            self.centroid_scatter_plot_item_in.clear()
-            self.centroid_scatter_plot_item_out.clear()
-
-
-    def fit_lightcurve(self,call=True):
-        fname = 'TIC-{:}_S{:02}_TPF_lightcurve.fits'.format(self.ticid, self.sector)
-        t = Table()
-        t.add_column(Column(self.TIME, name='TIME'))
-        sky_counts_per_pixel = np.median(self.FLUX[:,self.pixel_aperture_mask==1], axis=1)
-        target_counts = self.FLUX[:,self.pixel_aperture_mask==2]
-        target_counts = np.sum(target_counts, axis=1) - sky_counts_per_pixel*target_counts.shape[1]
-        t.add_column(Column(target_counts, name='SAP_FLUX'))
-        t.add_column(Column(target_counts, name='PDCSAP_FLUX'))
-        t.add_column(Column(np.ones(len(t))*median_abs_deviation(t['SAP_FLUX']), name='PDCSAP_FLUX_ERR'))
-        t.add_column(Column(np.sum(self.FLUX[:,self.pixel_aperture_mask==1], axis=1), name='SAP_BKG'))
-        t.add_column(Column(np.ones(len(t))*median_abs_deviation(t['SAP_BKG']), name='SAP_BKG_ERR'))
-
-        t.add_column(Column(self.QUALITY_MASK, name='QUALITY_MASK'))
-        t.write(fname, overwrite=True)
-
-        with fits.open(fname, 'update') as h:
-            h[0].header['TICID'] = int(self.ticid)
-            h[0].header['SECTOR'] = int(self.sector)
-
-        if call : os.system('spocfit {:} &'.format(fname))
-        else : return fname
-
-
-    def save_lightcurve(self,):
-        fname = 'TIC-{:}_S{:02}_TPF_lightcurve.fits'.format(self.ticid, self.sector)
-        t = Table()
-        t.add_column(Column(self.TIME, name='BTJD'))
-        sky_counts_per_pixel = np.median(self.FLUX[:,self.pixel_aperture_mask==1], axis=1)
-        target_counts = self.FLUX[:,self.pixel_aperture_mask==2]
-        target_counts = np.sum(target_counts, axis=1) - sky_counts_per_pixel*target_counts.shape[1]
-        t.add_column(Column(target_counts, name='FLUX'))
-        t.add_column(Column(np.ones(len(t))*median_abs_deviation(t['FLUX']), name='FLUX_ERR'))
-        t.add_column(Column(sky_counts_per_pixel, name='MEDIAN_BKG'))
-        t.add_column(Column(np.sum(self.FLUX[:,self.pixel_aperture_mask==1], axis=1), name='TOTAL_BKG'))
-        t.add_column(Column(self.QUALITY_MASK, name='QUALITY_MASK'))
-        t.write(fname, overwrite=True)
-        print('Saved to '+fname)
-
-    def save_pixel_mask(self):
-        fname = 'TIC-{:}_S{:02}_pixel_mask'.format(self.ticid, self.sector)
-        np.save(fname, self.pixel_aperture_mask)
-        print('Saved to '+fname+'.npy')
-
-
-    def plot_pixel_lightcurve(self,):
-        sky_counts_per_pixel = np.median(self.FLUX[:,self.pixel_aperture_mask==1], axis=1)
-        target_counts = self.FLUX[:,self.pixel_aperture_mask==2]
-        target_counts = np.sum(target_counts, axis=1) - sky_counts_per_pixel*target_counts.shape[1]
-        plt = pg.plot()
-        line1 = plt.plot(self.TIME, target_counts, pen='r')
-        plt.setLabel('left', 'Flux', units ='e/s')
-        plt.setLabel('bottom', 'Time', units ='BTJD')
-
-    def update_mask_on_click(self, event):
-        event = self.image_view_plotview.mapSceneToView(event.pos())
-        i = int(np.floor(event.x()))
-        j = int(np.floor(event.y()))
-        self.pixel_aperture_mask[i,j] +=1
-        if self.pixel_aperture_mask[i,j]==3 : self.pixel_aperture_mask[i,j] =0
-        self.plot_pixel_aperture()
-
-    def calculate_pixel_aperture_mask(self,):
-        self.pixel_aperture_mask = np.zeros((self.FLUX.shape[1], self.FLUX.shape[2]), dtype = int)                
-        self.pixel_aperture_mask[self.FLUX[30] < np.percentile(self.FLUX[30],30)] = 1
-        self.pixel_aperture_mask[self.lightkurve.create_threshold_mask()] = 2
-
-
-    def draw_data(self,):
-        # update the image view 2 data
-        self.image_view.setImage(self.FLUX, xvals=self.TIME)
-        img_median=np.median(self.FLUX,)
-        img_rms=1.48*np.median(np.abs(self.FLUX-img_median))
-        zmin = img_median-img_rms*5
-        zmax = img_median+img_rms*9
-        self.image_view.setLevels(zmin, zmax)
-
-
-
-
-    def plot_pixel_lcs(self,):
-
-        if self.plot_lc_check_box.isChecked() : 
-            count = 0
-            for i in range(self.FLUX.shape[1]):
-                for j in range(self.FLUX.shape[2]):
-                    t_low, t_high = self.lr.getRegion()
-                    mask = (self.TIME > t_low) & (self.TIME < t_high)
-                    # Now need to scale data between j and j+1 in x
-                    X = self.TIME[mask]
-                    X = i  + (X - np.min(X)) / (np.max(X) - np.min(X))
-                    # Y needs to be scaled between i and i+1 
-                    Y =  -self.FLUX[mask,i,j]
-                    Y = (j  + (Y - np.min(Y)) / (np.max(Y) - np.min(Y)))
-
-                    self.pixel_lines[count].setData(x=X,y=Y, pen=pg.mkPen('red', width=3))
-                    count +=1
-        else :             
-            for i in range(len(self.pixel_lines)) : self.pixel_lines[i].clear()
-
-        self.image_view_plotview.update()
-
-    def plot_pixel_aperture(self,):
-        if self.pixel_mask_check_box.isChecked() : 
-            count = 0
-            for i in range(self.FLUX.shape[1]):
-                for j in range(self.FLUX.shape[2]):
-                    self.pixel_lines[count].clear()
-                    if self.pixel_aperture_mask[i,j] > 0:
-                        X = [i,i+ 1, i+1, i+0, i]
-                        Y = [j,j,j+1,j+1, j]
-                        if self.pixel_aperture_mask[i,j]==1 : self.pixel_lines[count].setData(x=X,y=Y, pen=pg.mkPen('b', width=5))
-                        elif self.pixel_aperture_mask[i,j]==2 : self.pixel_lines[count].setData(x=X,y=Y, pen=pg.mkPen('red', width=5))
-
-                        count +=1
-        else :             
-            for i in range(len(self.pixel_lines)) : self.pixel_lines[i].clear()
-
-        self.image_view_plotview.update()
-
-
-    def update_sources(self,):
-            # No sources cached, lets get them
-            self.sources = Catalogs.query_object('TIC{:}'.format(self.ticid), radius=0.00583333*np.max([self.FLUX.shape[1], self.FLUX.shape[2]]), catalog="TIC")
-            self.sources_X, self.sources_Y = self.wcs.all_world2pix(self.sources['ra'], self.sources['dec'],1)
-
-            mask = (self.sources_Y > 0) & (self.sources_Y < self.FLUX.shape[2]) & (self.sources_X > 0) & (self.sources_X < self.FLUX.shape[1]) & (self.sources['Tmag'] < float(self.tmag_max_cache)) & (self.sources['Tmag'] > float(self.tmag_min_cache))
-            self.sources = self.sources[mask]
-            self.sources_X, self.sources_Y = self.wcs.all_world2pix(self.sources['ra'], self.sources['dec'],1)
-
-    def plot_sources(self,):
-        if (not hasattr(self, 'sources')) or (self.tmag_max_cache!=self.tmag_max_box.text()) or (self.tmag_min_cache!=self.tmag_min_box.text()):
-            self.tmag_max_cache = self.tmag_max_box.text()
-            self.tmag_min_cache = self.tmag_min_box.text()
-
-            # No sources cached, lets get them
-            self.update_sources()
-
-        if self.plot_sources_check_box.isChecked(): 
-            self.source_scatter.setData(x = self.sources_Y, y=self.sources_X)
-            self.sources_text = []
-            for i in range(len(self.sources)):
-                self.sources_text.append(pg.TextItem('TIC-{:}\nT={:.3f}'.format(self.sources['ID'][i], self.sources['Tmag'][i]), color=(0, 255, 0)))
-                self.sources_text[-1].setPos(self.sources_Y[i]-0.5, self.sources_X[i]-1)
-                self.image_view_plotview.addItem(self.sources_text[-1])
-        else : 
-            self.source_scatter.clear()
-            for text in self.sources_text : text.setText('')
-            self.sources_text = []
-
-
-        
-        self.image_view_plotview.update()
-
-
-
 
 def main():
+
+    from pyqtgraph.Qt import QtGui
+    import numpy as np, os#, pyqtgraph as pg
+    from astropy.table import Table, Column
+    from scipy.stats import median_abs_deviation
+    import pyqtgraph as pg
+    from astropy.io import fits
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QLabel, QLineEdit , QCheckBox
+    #from pyqtgraph.dockarea import *
+    from astroquery.mast import Catalogs
+    import warnings
+    warnings.filterwarnings("ignore")
+    from astroquery.mast import Catalogs
+    from astropy.wcs import WCS 
+    import argparse
+    from astroquery.mast import Tesscut
+    import lightkurve
+
+    from astropy.coordinates import SkyCoord
+
+
+    import urllib.request, json , glob, zipfile
+    from astroquery.mast import Catalogs
+    import tempfile
+
+    def parse_args():
+        description = '''A program to searc spoc lightcurves for transit signals'''
+
+        # Argument parser
+        parser = argparse.ArgumentParser('spocsearch', description=description)
+
+        parser.add_argument('-e',
+                        "--tic_id",
+                        help='The filename of the SPOC lightcurve',
+                        default=None)
+
+        parser.add_argument('-a', 
+                        '--sector',
+                        help='The sector',
+                        default=None, type=int)
+
+        parser.add_argument('-b', 
+                        '--size',
+                        help='The size of the cutout in pixels.',
+                        default=10, type=int)
+
+        parser.add_argument('-c', 
+                        '--mask',
+                        help='The pixel mask.',
+                        default=None, type=str)
+
+        parser.add_argument('-d',
+                            '--coordinates',
+                            help = 'The coordinates of the target.',
+                            type = float,
+                            nargs='+',
+                            default=[])
+        
+
+        parser.add_argument('--tica', action="store_true", default=False)
+        parser.add_argument('--all', action="store_true", default=False)
+        parser.add_argument('--nogui', action="store_true", default=False)
+
+
+        return parser.parse_args()
+
+
+    class Window():
+        def __init__(self, TIME, FLUX,QUALITY_MASK, ticid, wcs, sector, mask, filename, type):
+            # Set the defaults
+            self.TIME = TIME
+            self.FLUX = FLUX
+            self.QUALITY_MASK = QUALITY_MASK
+            self.ticid = ticid 
+            self.wcs = wcs
+            self.sector = sector
+            self.lightkurve = lightkurve.targetpixelfile.TessTargetPixelFile(filename)
+            self.lightkurve.row 
+
+            if mask is None : self.calculate_pixel_aperture_mask()
+            else : self.pixel_aperture_mask = np.load(mask)
+
+            # Create the GUI
+            self.app = pg.mkQApp("TESS TPF") 
+            self.win = QtGui.QMainWindow()
+
+
+            #################################################################
+            # Create the window and the dock area
+            #################################################################
+            #self.area = DockArea()
+            #self.win.setCentralWidget(self.area)
+            #self.win.resize(1300,800)
+            #self.win.showFullScreen()
+            self.win.showMaximized()
+            self.win.setStyleSheet('QCheckBox {background-color: #7BAD98}')
+
+            title_text = '{:} S{:02} TPF [TIC-{:}]'.format(type, sector, self.ticid)
+            self.win.setWindowTitle(title_text)
+
+            #################################################################
+            # Create the first dock which holds the plots in
+            #################################################################
+            #self.d1 = Dock('TIC-{:}'.format(ticid), size=(1000,800))     ## give this dock the minimum possible size
+
+            #################################################################
+            # Add the docks
+            #################################################################
+            #self.area.addDock(self.d1)      ## place d1 at left edge of dock area (it will fill the whole space since there are no other docks yet)
+            #self.area.addDock(self.d_frame, 'right', self.d1 )     ## place d2 at right edge of dock area
+
+
+            #################################################################
+            # Create the image view
+            ################################################################# 
+            self.image_view = pg.ImageView()
+            self.win.setCentralWidget(self.image_view)
+            self.image_view_plotview = self.image_view.getView()
+
+
+            self.image_view_roi = self.image_view.getRoiPlot()
+            if args.tica: self.image_view_roi.setLabel('left', 'Flux [e]')
+            else :        self.image_view_roi.setLabel('left', 'Flux [e/s]')
+            self.image_view_roi.setLabel('bottom', 'BTJD')
+            self.image_view_roi.setPos(3,3)
+
+            self.image_view.setLevels(-500, 2000)
+
+            self.lr = pg.LinearRegionItem([self.TIME[0], self.TIME[100]], bounds=[np.min(self.TIME), np.max(self.TIME)], movable=True)
+            self.image_view_roi.addItem(self.lr)
+            self.lr.sigRegionChanged.connect(self.update_plots)
+
+            # Create the pixel lines
+            self.pixel_lightcurve_pen = pg.mkPen((255,0,0,100))
+            self.pixel_lines = [pg.PlotCurveItem(x=[], y=[],  pen =self.pixel_lightcurve_pen) for i in range(self.FLUX.shape[1]*self.FLUX.shape[2])]
+            for line in self.pixel_lines : self.image_view_plotview.addItem(line)
+
+            # Create the centroid scatter item
+            self.centroid_scatter_plot_item_in = pg.ScatterPlotItem(size=10, pen=pg.mkPen(None), brush=pg.mkBrush('blue'))
+            self.centroid_scatter_plot_item_in.setZValue(10)
+            self.image_view_plotview.addItem(self.centroid_scatter_plot_item_in)
+            self.centroid_scatter_plot_item_out = pg.ScatterPlotItem(size=10, pen=pg.mkPen(None), brush=pg.mkBrush('red'))
+            self.centroid_scatter_plot_item_out.setZValue(9)
+            self.image_view_plotview.addItem(self.centroid_scatter_plot_item_out)
+
+            # Now create the checkbox to go with it
+            self.plot_lc_check_box = QCheckBox("Plot pixel lightcurves")
+            self.image_view.scene.addWidget(self.plot_lc_check_box)
+            self.plot_lc_check_box.stateChanged.connect(self.plot_pixel_lcs)
+            self.plot_lc_check_box.setStyleSheet('QCheckBox {background-color: #007BAD98; color: white}')
+
+        
+            # Create the source scatter item
+            self.source_pen = pg.mkPen((0,255,0,100))
+            self.source_scatter = pg.ScatterPlotItem(size=10, pen=self.source_pen)
+            self.image_view_plotview.addItem(self.source_scatter)
+
+            # Create the text
+            self.sources_text = []
+
+            # Make the source check boz
+            self.plot_sources_check_box = QCheckBox("Plot sources")
+            self.image_view.scene.addWidget(self.plot_sources_check_box)
+            self.plot_sources_check_box.move(0, 20)
+            self.plot_sources_check_box.stateChanged.connect(self.plot_sources)
+            self.plot_sources_check_box.setStyleSheet('QCheckBox {background-color: #007BAD98; color: white}')
+
+            # Now add the Tmin box 
+            self.tmag_min_box = QLineEdit('0')
+            self.tmag_min_cahce = '0'
+            self.image_view.scene.addWidget(self.tmag_min_box)
+            self.tmag_min_box.move(80, 40)
+            self.tmag_min_box.setFixedWidth(50)
+
+            self.tmag_minlabel = QLabel("min Tmag")
+            self.image_view.scene.addWidget(self.tmag_minlabel)
+            self.tmag_minlabel.move(0, 40)
+            self.tmag_minlabel.setStyleSheet('QLabel {background-color: #007BAD98; color: white}')
+
+            # Now add the Tmax box 
+            self.tmag_max_box = QLineEdit('16')
+            self.tmag_max_cache = '16'
+            self.image_view.scene.addWidget(self.tmag_max_box)
+            self.tmag_max_box.move(80, 60)
+            self.tmag_max_box.setFixedWidth(50)
+
+            self.tmag_maxlabel = QLabel("Max Tmag")
+            self.image_view.scene.addWidget(self.tmag_maxlabel)
+            self.tmag_maxlabel.move(0, 60)
+            self.tmag_maxlabel.setStyleSheet('QLabel {background-color: #007BAD98; color: white}')
+            
+            # Make the pixel mask box
+            self.pixel_mask_check_box = QCheckBox("Pixel mask")
+            self.image_view.scene.addWidget(self.pixel_mask_check_box)
+            self.pixel_mask_check_box.move(0, 80)
+            self.pixel_mask_check_box.stateChanged.connect(self.plot_pixel_aperture)
+            self.pixel_mask_check_box.setStyleSheet('QCheckBox {background-color: #007BAD98; color: white}')
+            self.image_view.scene.sigMouseClicked.connect(self.update_mask_on_click)
+
+
+            # Now plot the LC 
+            self.plot_lc_button = QtGui.QPushButton('Plot pixel lightcurve')
+            self.image_view.scene.addWidget(self.plot_lc_button)
+            self.plot_lc_button.move(0, 100)
+            self.plot_lc_button.setStyleSheet('QPushButton {background-color: #007BAD98; color: white}')
+            self.plot_lc_button.clicked.connect(self.plot_pixel_lightcurve)
+
+            # Now add the save pixel mask
+            self.save_pixel_mask_button = QtGui.QPushButton('Save pixel mask')
+            self.image_view.scene.addWidget(self.save_pixel_mask_button)
+            self.save_pixel_mask_button.move(0, 130)
+            self.save_pixel_mask_button.clicked.connect(self.save_pixel_mask)
+            self.save_pixel_mask_button.setStyleSheet('QPushButton {background-color: #007BAD98; color: white}')
+
+            # Now add the save lightcurve button
+            self.save_lightcurve_button = QtGui.QPushButton('Save lightcurve')
+            self.image_view.scene.addWidget(self.save_lightcurve_button)
+            self.save_lightcurve_button.move(0, 160)
+            self.save_lightcurve_button.clicked.connect(self.save_lightcurve)
+            self.save_lightcurve_button.setStyleSheet('QPushButton {background-color: #007BAD98; color: white}')
+
+            # Now add the spocfit  button
+            self.fit_lightcurve_button = QtGui.QPushButton('Fit the lightcurve')
+            self.image_view.scene.addWidget(self.fit_lightcurve_button)
+            self.fit_lightcurve_button.move(0, 190)
+            self.fit_lightcurve_button.clicked.connect(self.fit_lightcurve)
+            self.fit_lightcurve_button.setStyleSheet('QPushButton {background-color: #007BAD98; color: white}')
+
+
+            # Now add the fluxweight  button
+            self.flux_weight_check_box = QCheckBox("Plot the flux weighting")
+            self.image_view.scene.addWidget(self.flux_weight_check_box)
+            self.flux_weight_check_box.move(0, 220)
+            self.flux_weight_check_box.stateChanged.connect(self.plot_flux_weighting)
+            self.flux_weight_check_box.setStyleSheet('QCheckBox {background-color: #007BAD98; color: white}')
+
+
+            # Finally set anti alias
+            pg.setConfigOptions(antialias=True)
+
+            self.win.show()
+
+
+        def update_plots(self,):
+            self.plot_flux_weighting()
+            self.plot_pixel_lcs()
+
+        def plot_flux_weighting(self,):
+            if self.flux_weight_check_box.isChecked():
+                t_low, t_high = self.lr.getRegion()
+                width = t_high - t_low
+                inmask = (self.TIME > t_low) & (self.TIME < t_high)
+                outmask = ((self.TIME > (t_low-width)) & (self.TIME < (t_high-width))) | ((self.TIME > (t_low+width)) & (self.TIME < (t_high+width)))
+                x, y = self.lightkurve.estimate_centroids()
+                x = np.array(x,dtype=np.float64) - self.lightkurve.column + 1
+                y = np.array(y,dtype=np.float64) - self.lightkurve.row 
+                self.centroid_scatter_plot_item_in.setData(x=x[inmask],y=y[inmask])
+                self.centroid_scatter_plot_item_out.setData(x=x[outmask],y=y[outmask])
+            else : 
+                self.centroid_scatter_plot_item_in.clear()
+                self.centroid_scatter_plot_item_out.clear()
+
+
+        def fit_lightcurve(self,call=True):
+            fname = 'TIC-{:}_S{:02}_TPF_lightcurve.fits'.format(self.ticid, self.sector)
+            t = Table()
+            t.add_column(Column(self.TIME, name='TIME'))
+            sky_counts_per_pixel = np.median(self.FLUX[:,self.pixel_aperture_mask==1], axis=1)
+            target_counts = self.FLUX[:,self.pixel_aperture_mask==2]
+            target_counts = np.sum(target_counts, axis=1) - sky_counts_per_pixel*target_counts.shape[1]
+            t.add_column(Column(target_counts, name='SAP_FLUX'))
+            t.add_column(Column(target_counts, name='PDCSAP_FLUX'))
+            t.add_column(Column(np.ones(len(t))*median_abs_deviation(t['SAP_FLUX']), name='PDCSAP_FLUX_ERR'))
+            t.add_column(Column(np.sum(self.FLUX[:,self.pixel_aperture_mask==1], axis=1), name='SAP_BKG'))
+            t.add_column(Column(np.ones(len(t))*median_abs_deviation(t['SAP_BKG']), name='SAP_BKG_ERR'))
+
+            t.add_column(Column(self.QUALITY_MASK, name='QUALITY_MASK'))
+            t.write(fname, overwrite=True)
+
+            with fits.open(fname, 'update') as h:
+                h[0].header['TICID'] = int(self.ticid)
+                h[0].header['SECTOR'] = int(self.sector)
+
+            if call : os.system('spocfit {:} &'.format(fname))
+            else : return fname
+
+
+        def save_lightcurve(self,):
+            fname = 'TIC-{:}_S{:02}_TPF_lightcurve.fits'.format(self.ticid, self.sector)
+            t = Table()
+            t.add_column(Column(self.TIME, name='BTJD'))
+            sky_counts_per_pixel = np.median(self.FLUX[:,self.pixel_aperture_mask==1], axis=1)
+            target_counts = self.FLUX[:,self.pixel_aperture_mask==2]
+            target_counts = np.sum(target_counts, axis=1) - sky_counts_per_pixel*target_counts.shape[1]
+            t.add_column(Column(target_counts, name='FLUX'))
+            t.add_column(Column(np.ones(len(t))*median_abs_deviation(t['FLUX']), name='FLUX_ERR'))
+            t.add_column(Column(sky_counts_per_pixel, name='MEDIAN_BKG'))
+            t.add_column(Column(np.sum(self.FLUX[:,self.pixel_aperture_mask==1], axis=1), name='TOTAL_BKG'))
+            t.add_column(Column(self.QUALITY_MASK, name='QUALITY_MASK'))
+            t.write(fname, overwrite=True)
+            print('Saved to '+fname)
+
+        def save_pixel_mask(self):
+            fname = 'TIC-{:}_S{:02}_pixel_mask'.format(self.ticid, self.sector)
+            np.save(fname, self.pixel_aperture_mask)
+            print('Saved to '+fname+'.npy')
+
+
+        def plot_pixel_lightcurve(self,):
+            sky_counts_per_pixel = np.median(self.FLUX[:,self.pixel_aperture_mask==1], axis=1)
+            target_counts = self.FLUX[:,self.pixel_aperture_mask==2]
+            target_counts = np.sum(target_counts, axis=1) - sky_counts_per_pixel*target_counts.shape[1]
+            plt = pg.plot()
+            line1 = plt.plot(self.TIME, target_counts, pen='r')
+            plt.setLabel('left', 'Flux', units ='e/s')
+            plt.setLabel('bottom', 'Time', units ='BTJD')
+
+        def update_mask_on_click(self, event):
+            event = self.image_view_plotview.mapSceneToView(event.pos())
+            i = int(np.floor(event.x()))
+            j = int(np.floor(event.y()))
+            self.pixel_aperture_mask[i,j] +=1
+            if self.pixel_aperture_mask[i,j]==3 : self.pixel_aperture_mask[i,j] =0
+            self.plot_pixel_aperture()
+
+        def calculate_pixel_aperture_mask(self,):
+            self.pixel_aperture_mask = np.zeros((self.FLUX.shape[1], self.FLUX.shape[2]), dtype = int)                
+            self.pixel_aperture_mask[self.FLUX[30] < np.percentile(self.FLUX[30],30)] = 1
+            self.pixel_aperture_mask[self.lightkurve.create_threshold_mask()] = 2
+
+
+        def draw_data(self,):
+            # update the image view 2 data
+            self.image_view.setImage(self.FLUX, xvals=self.TIME)
+            img_median=np.median(self.FLUX,)
+            img_rms=1.48*np.median(np.abs(self.FLUX-img_median))
+            zmin = img_median-img_rms*5
+            zmax = img_median+img_rms*9
+            self.image_view.setLevels(zmin, zmax)
+
+
+
+
+        def plot_pixel_lcs(self,):
+
+            if self.plot_lc_check_box.isChecked() : 
+                count = 0
+                for i in range(self.FLUX.shape[1]):
+                    for j in range(self.FLUX.shape[2]):
+                        t_low, t_high = self.lr.getRegion()
+                        mask = (self.TIME > t_low) & (self.TIME < t_high)
+                        # Now need to scale data between j and j+1 in x
+                        X = self.TIME[mask]
+                        X = i  + (X - np.min(X)) / (np.max(X) - np.min(X))
+                        # Y needs to be scaled between i and i+1 
+                        Y =  -self.FLUX[mask,i,j]
+                        Y = (j  + (Y - np.min(Y)) / (np.max(Y) - np.min(Y)))
+
+                        self.pixel_lines[count].setData(x=X,y=Y, pen=pg.mkPen('red', width=3))
+                        count +=1
+            else :             
+                for i in range(len(self.pixel_lines)) : self.pixel_lines[i].clear()
+
+            self.image_view_plotview.update()
+
+        def plot_pixel_aperture(self,):
+            if self.pixel_mask_check_box.isChecked() : 
+                count = 0
+                for i in range(self.FLUX.shape[1]):
+                    for j in range(self.FLUX.shape[2]):
+                        self.pixel_lines[count].clear()
+                        if self.pixel_aperture_mask[i,j] > 0:
+                            X = [i,i+ 1, i+1, i+0, i]
+                            Y = [j,j,j+1,j+1, j]
+                            if self.pixel_aperture_mask[i,j]==1 : self.pixel_lines[count].setData(x=X,y=Y, pen=pg.mkPen('b', width=5))
+                            elif self.pixel_aperture_mask[i,j]==2 : self.pixel_lines[count].setData(x=X,y=Y, pen=pg.mkPen('red', width=5))
+
+                            count +=1
+            else :             
+                for i in range(len(self.pixel_lines)) : self.pixel_lines[i].clear()
+
+            self.image_view_plotview.update()
+
+
+        def update_sources(self,):
+                # No sources cached, lets get them
+                self.sources = Catalogs.query_object('TIC{:}'.format(self.ticid), radius=0.00583333*np.max([self.FLUX.shape[1], self.FLUX.shape[2]]), catalog="TIC")
+                self.sources_X, self.sources_Y = self.wcs.all_world2pix(self.sources['ra'], self.sources['dec'],1)
+
+                mask = (self.sources_Y > 0) & (self.sources_Y < self.FLUX.shape[2]) & (self.sources_X > 0) & (self.sources_X < self.FLUX.shape[1]) & (self.sources['Tmag'] < float(self.tmag_max_cache)) & (self.sources['Tmag'] > float(self.tmag_min_cache))
+                self.sources = self.sources[mask]
+                self.sources_X, self.sources_Y = self.wcs.all_world2pix(self.sources['ra'], self.sources['dec'],1)
+
+        def plot_sources(self,):
+            if (not hasattr(self, 'sources')) or (self.tmag_max_cache!=self.tmag_max_box.text()) or (self.tmag_min_cache!=self.tmag_min_box.text()):
+                self.tmag_max_cache = self.tmag_max_box.text()
+                self.tmag_min_cache = self.tmag_min_box.text()
+
+                # No sources cached, lets get them
+                self.update_sources()
+
+            if self.plot_sources_check_box.isChecked(): 
+                self.source_scatter.setData(x = self.sources_Y, y=self.sources_X)
+                self.sources_text = []
+                for i in range(len(self.sources)):
+                    self.sources_text.append(pg.TextItem('TIC-{:}\nT={:.3f}'.format(self.sources['ID'][i], self.sources['Tmag'][i]), color=(0, 255, 0)))
+                    self.sources_text[-1].setPos(self.sources_Y[i]-0.5, self.sources_X[i]-1)
+                    self.image_view_plotview.addItem(self.sources_text[-1])
+            else : 
+                self.source_scatter.clear()
+                for text in self.sources_text : text.setText('')
+                self.sources_text = []
+
+
+            
+            self.image_view_plotview.update()
+
+
 
     # Parse the args
     args = parse_args()
