@@ -14,7 +14,7 @@ def main():
     from PyQt5.QtCore import Qt
     from PyQt5.QtWidgets import QApplication, QHBoxLayout, QLabel, QSizePolicy, QSlider, QSpacerItem, \
         QVBoxLayout, QWidget, QLineEdit , QCheckBox, QProgressBar, QPlainTextEdit, QRadioButton
-    from pyqtgraph.dockarea import *
+    from pyqtgraph.dockarea import DockArea, Dock
     import pyqtgraph.exporters
     import tempfile , glob, time, pickle
     from astroquery.mast import Catalogs
