@@ -7,9 +7,9 @@ import re, tempfile
 from astropy.stats import sigma_clip
 
 from bruce.ambiguous_period import photometry_time_series
+from bruce.data import bin_data
 
-
-def get_tess_data(tic_id, verbose=False, download_dir=None, max_sector=np.inf, projects=['TESS-SPOC', 'SPOC', 'QLP'], data_type='single_product'):
+def get_tess_data(tic_id, verbose=False, download_dir=None, max_sector=np.inf, projects=['TESS-SPOC', 'SPOC', 'QLP'], data_type='single_product', bin_length=None, sigma=None):
     obsTable = Observations.query_criteria(provenance_name=('TESS-SPOC','SPOC', 'QLP'), target_name=tic_id)
     data = Observations.get_product_list(obsTable)
     mask = np.array([i[-7:]=='lc.fits' for i in data['productFilename']], dtype = bool)
@@ -70,7 +70,7 @@ def get_tess_data(tic_id, verbose=False, download_dir=None, max_sector=np.inf, p
         # Now sigma clip
         mask = mask & ~sigma_clip(flux, sigma=3,masked=True).mask
 
-        return photometry_time_series(time[~mask], flux[~mask], flux_err[~mask])
+        return photometry_time_series(time[~mask], flux[~mask], flux_err[~mask]), 'all_data'
 
     elif data_type=='per_sector':
         data_return = []
@@ -87,22 +87,26 @@ def get_tess_data(tic_id, verbose=False, download_dir=None, max_sector=np.inf, p
                         flux_err = np.array(data['PDCSAP_FLUX_ERR'])
                     if 'QLP' in data_to_download['project'][i]:
                         #data = data[~np.isinf(data['TIME']) & ~np.isnan(data['TIME']) & ~np.isinf(data['SAP_FLUX']) & ~np.isnan(data['SAP_FLUX']) & (data['SAP_FLUX'] > 1) & (data['PDCSAP_FLUX'] > 1)]
-                        time = np.concatenate((time, np.array(data['TIME'])+2457000))
+                        time = np.array(data['TIME'])+2457000
                         if 'KSPSAP_FLUX' in data.colnames:
                             flux = np.array(data['KSPSAP_FLUX'])
                             flux_err = np.array(data['KSPSAP_FLUX_ERR'])
                         if 'DET_FLUX' in data.colnames:
                             flux =np.array(data['DET_FLUX'])
                             flux_err = np.array(data['DET_FLUX_ERR'])
-                mask = np.isnan(time) | np.isnan(flux) | np.isnan(flux_err) | np.isinf(time) | np.isinf(flux) | np.isinf(flux_err)
+                            
+                    mask = ~(np.isnan(time) | np.isnan(flux) | np.isnan(flux_err) | np.isinf(time) | np.isinf(flux) | np.isinf(flux_err))
+                    # Now sigma clip
+                    if sigma is not None : mask = mask & ~sigma_clip(flux, masked=True, sigma=sigma).mask
+                    time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
+                    if (bin_length is not None) and np.median(np.gradient(time))<(0.5*bin_length): 
+                        time, flux, flux_err, c = bin_data(time,flux, bin_length)
+                        mask = c>2
+                        time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
+                    data_return.append(photometry_time_series(time, flux, flux_err))
+                    data_return_labels.append('Sector {:}'.format(data_to_download['sector'][i]))
 
-                # Now sigma clip
-                mask = mask & ~sigma_clip(flux, sigma=3,masked=True).mask
-
-                data_return.append(photometry_time_series(time[~mask], flux[~mask], flux_err[~mask]))
-                data_return_labels.append('Sector {:}'.format(data_after['sector'][i]))
-
-        return data_return, data_return_labels
+        return np.array(data_return), np.array(data_return_labels)
     
     elif data_type=='northern_duos':
         data_year24 = data_to_download[data_to_download['sector']<=55]

@@ -35,7 +35,8 @@ def find_nights_from_data(x, dx_lim):
 
     # create the idx to split
     idx = np.arange(x.shape[0])
-    return np.split(idx, dx_thresh)
+    d =  np.split(idx, dx_thresh)
+    return [i for i in d if i.shape[0]>0]
 
 
 

@@ -9,6 +9,38 @@ import multiprocess
 from bruce.ambiguous_period.fitting import chi_fixed_period
 from bruce.data.data_processing import flatten_data_with_function
 
+def group_data_by_epochs(data_list, data_list_labels, epoch_1, epoch_2):
+    # First, lets order data by start point
+    idx_sort = np.argsort([i.time.min() for i in data_list])
+    data_list_sorted = data_list[idx_sort]
+    data_list_labels_sorted = data_list_labels[idx_sort]
+
+    # Now lets work out which data includes the transits
+    # For this, we can assume that everything with start time above epoch time_2 is to br grouped
+    max_epoch = max(epoch_1, epoch_2)
+
+    data_to_be_grouped, data_to_be_grouped_labels = [],[] 
+    other_data, other_data_labels = [],[]
+    for i in range(len(data_list_sorted)):
+        if data_list_sorted[i].time.min()<max_epoch:
+            data_to_be_grouped.append(data_list_sorted[i])
+            data_to_be_grouped_labels.append(data_list_labels_sorted[i])
+        else:
+            other_data.append(data_list_sorted[i])
+            other_data_labels.append(data_list_labels_sorted[i])
+
+    # Now concat
+    time, flux, flux_err, w = [],[],[], []
+    for i in data_to_be_grouped : 
+        time.append(i.time)
+        flux.append(i.flux)
+        flux_err.append(i.flux_err)
+        w.append(i.w)
+    return_data = [photometry_time_series(np.concatenate(time), np.concatenate(flux),np.concatenate(flux_err), w=np.concatenate(w)), *other_data]
+    return_labels = [','.join(data_to_be_grouped_labels), *other_data_labels]
+
+    return return_data, return_labels
+    
 class photometry_time_series:
     def __init__(self, time, flux, flux_err, w=None):
         self.time, self.flux, self.flux_err = time, flux, flux_err

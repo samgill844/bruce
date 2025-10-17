@@ -18,6 +18,8 @@ from astroquery.mast import Catalogs
 from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 
 from bruce.data import bin_data
+from bruce.ambiguous_period.mono_event import photometry_time_series
+
 
 class ambiguous_period:
     def __init__(self, data, events=[], 
@@ -27,7 +29,41 @@ class ambiguous_period:
         self.name=name
         self.median_bin_size = median_bin_size
         self.convolve_bin_size = convolve_bin_size
+
+    def group_data_by_epochs(data_list, data_list_labels, epoch_1, epoch_2):
+        # First, lets order data by start point
+        idx_sort = np.argsort([i.time.min() for i in data_list])
+        data_list_sorted = data_list[idx_sort]
+        data_list_labels_sorted = data_list_labels[idx_sort]
+
+        # Now lets work out which data includes the transits
+        # For this, we can assume that everything with start time above epoch time_2 is to br grouped
+        max_epoch = max(epoch_1, epoch_2)
+
+        data_to_be_grouped, data_to_be_grouped_labels = [],[] 
+        other_data, other_data_labels = [],[]
+        for i in range(len(data_list_sorted)):
+            if data_list_sorted[i].time.min()<max_epoch:
+                data_to_be_grouped.append(data_list_sorted[i])
+                data_to_be_grouped_labels.append(data_list_labels_sorted[i])
+            else:
+                other_data.append(data_list_sorted[i])
+                other_data_labels.append(data_list_labels_sorted[i])
+
+        # Now concat
+        time, flux, flux_err = [],[],[]
+        for i in data_to_be_grouped : 
+            time.append(i.time)
+            flux.append(i.flux)
+            flux_err.append(i.flux_err)
+        return_data = [photometry_time_series(np.concatenate(time), np.concatenate(flux),np.concatenate(flux_err)), *other_data]
+        return_labels = [','.join(other_data_labels), *other_data_labels]
+
+        return return_data, return_labels
+
+
         
+
     def mask_and_filter_events(self,):
         self.event_mask = np.zeros(self.data.time.shape[0], dtype=bool)
         for i in range(len(self.events)):

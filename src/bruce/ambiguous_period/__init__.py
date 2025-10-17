@@ -1,3 +1,3 @@
 from .ambiguous_period import ambiguous_period
-from .mono_event import photometry_time_series, mono_event
+from .mono_event import photometry_time_series, mono_event, group_data_by_epochs
 from .data_retrieval import get_tess_data
