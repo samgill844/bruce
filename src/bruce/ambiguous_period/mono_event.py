@@ -42,9 +42,10 @@ def group_data_by_epochs(data_list, data_list_labels, epoch_1, epoch_2):
     return return_data, return_labels
     
 class photometry_time_series:
-    def __init__(self, time, flux, flux_err, w=None):
+    def __init__(self, time, flux, flux_err, w=None, sky_bkg=None):
         self.time, self.flux, self.flux_err = time, flux, flux_err
         self.w = w
+        self.sky_bkg = sky_bkg
         argsort = np.argsort(self.time)
         self.time, self.flux, self.flux_err= self.time[argsort], self.flux[argsort], self.flux_err[argsort]
         if w is not None : self.w = self.w[argsort]
@@ -67,14 +68,17 @@ class photometry_time_series:
         self.w = bruce.data.median_filter(self.time, self.flux, bin_size=median_bin_size)
         self.w = bruce.data.convolve_1d(self.time, self.w, bin_size=convolve_bin_size)
 
-    def flatten_data_old(self,window_length=101, sigmaclip=3, dx_lim=0.2):
+    def flatten_data_old(self,window_width=0.2, sigmaclip=3, dx_lim=0.2):
         segments = bruce.data.find_nights_from_data(self.time, dx_lim=dx_lim)
         self.w = np.ones(self.flux.shape[0])
         for seg in segments : 
             # try : 
 
             try : 
-                window_length_ = int(window_length*(0.5/24)/np.median(np.gradient(self.time[seg])))
+                cadence = np.median(np.gradient(self.time[seg]))
+                window_length_ = int(window_width/cadence)
+                if window_length_ > self.time[seg].shape[0]:
+                    window_length_ = int(0.8*self.time[seg].shape[0])
                 print('W : ', window_length_)
                 if window_length_ % 2 == 0: window_length_ +=1
                 self.w[seg] = bruce.data.flatten_data_with_function(self.time[seg] + 2457000, self.flux[seg], 

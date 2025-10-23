@@ -1,171 +1,331 @@
+import os, json, urllib.request, tempfile, zipfile, glob, shutil
 import numpy as np
-import urllib.request, json
-from astropy.table import Table, vstack
-from astroquery.mast import Catalogs
+from astropy.table import Table, Column, vstack
 from astroquery.mast import Observations
-import re, tempfile
+from astropy.io import fits
+from astropy.wcs import WCS
+from bruce.ambiguous_period.mono_event import photometry_time_series
 from astropy.stats import sigma_clip
-
-from bruce.ambiguous_period import photometry_time_series
 from bruce.data import bin_data
+from astroquery.mast import Catalogs
+import lightkurve as lk
+import matplotlib.pyplot as plt 
+from scipy.stats import median_abs_deviation
 
-def get_tess_data(tic_id, verbose=False, download_dir=None, max_sector=np.inf, projects=['TESS-SPOC', 'SPOC', 'QLP'], data_type='single_product', bin_length=None, sigma=None):
-    obsTable = Observations.query_criteria(provenance_name=('TESS-SPOC','SPOC', 'QLP'), target_name=tic_id)
-    data = Observations.get_product_list(obsTable)
-    mask = np.array([i[-7:]=='lc.fits' for i in data['productFilename']], dtype = bool)
-    data = data[mask]
-    data['sector'] = np.zeros(len(data), dtype=int)
-    for i in range(len(data)):
-        re1 = re.search(r's(\d{4})', data['productFilename'][i])
-        re2 = re.search(r'-s(\d{4})', data['productFilename'][i])
-        if re1 is not None : data['sector'][i] = int(re1.group(1))
-        if re2 is not None : data['sector'][i] = int(re2.group(1))
+def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None, bin_length=None):
+    """
+    Download available TESS data (SPOC, QLP, and optionally FFI) for a target.
+    
+    Parameters
+    ----------
+    tic_id : str or int
+        TIC identifier for the target.
+    ra, dec : float
+        Right ascension and declination of the target.
+    max_sector : int or None, optional
+        If given, only download up to this sector.
+    use_ffi : bool, optional
+        If True (default), create custom light curves from FFIs when no LC is available.
+    download_dir : str or None, optional
+        Directory to store downloaded data. If None, a temporary directory is created.
 
-    if verbose : print(data['sector', 'productFilename'])
+    Returns
+    -------
+    summary : astropy.table.Table
+        Table listing data availability and downloaded files.
+    datasets : list
+        List of photometry_time_series objects.
+    data_path : str
+        Path to directory containing downloaded products.
+    """
 
-    # Now get the data to download
-    data_to_download=[]
-    for i in np.unique(data['sector']):
-            if i > max_sector: continue
-            data_ = data[data['sector']==i]
-            if ('TESS-SPOC' in data_['project']) and ('TESS-SPOC' in projects) : 
-                data_to_download.append(data_[np.argwhere(data_['project']=='TESS-SPOC')[0][0]])
-                continue
-            elif ('SPOC' in data_['project']) and ('SPOC' in projects) : 
-                data_to_download.append(data_[np.argwhere(data_['project']=='SPOC')[0][0]])
-                continue
-            elif ('QLP' in data_['project']) and ('QLP' in projects) : 
-                data_to_download.append(data_[np.argwhere(data_['project']=='QLP')[0][0]])
-                continue
+    # Lets query TIC8
+    # Now query tic8 
+    tic8 = Catalogs.query_object('TIC{:}'.format(tic_id), radius=.02, catalog="TIC")
+    if len(tic8)==0 : raise ValueError('No obsject found :( ')
+    tic8 = tic8[0]
+    ra, dec = tic8['ra'], tic8['dec']
+
+    def query_tesscut(product=None):
+        url = f"https://mast.stsci.edu/tesscut/api/v0.1/sector?ra={ra}&dec={dec}"
+        if product:
+            url += f"&product={product}"
+        with urllib.request.urlopen(url) as u:
+            res = json.load(u)['results']
+        if not res:
+            return Table()
+        keys = list(res[0].keys())
+        data = [[i[j] for j in keys] for i in res]
+        return Table(np.array(data), names=keys)
+
+    # Create / manage the download directory
+    if download_dir is None:
+        tempdir = tempfile.TemporaryDirectory()
+        base_dir = tempdir.name
+        auto_cleanup = True
+    else:
+        os.makedirs(download_dir, exist_ok=True)
+        base_dir = os.path.abspath(download_dir)
+        tempdir = None
+        auto_cleanup = False
+
+    print(f"\n📂 Download directory: {base_dir}\n")
+
+    # Query FFI and SPOC availability
+    data_ffi = query_tesscut() if use_ffi else Table()
+    data_spoc = query_tesscut("SPOC")
+
+    if len(data_ffi) == 0 and len(data_spoc) == 0:
+        print("No data available.")
+        return Table(), [], base_dir
+
+    # Combine and group by sector
+    total = vstack((data_ffi, data_spoc)).group_by('sector')
+    sectors = total.groups.keys
+    if max_sector:
+        sectors = sectors[sectors['sector'] <= max_sector]
+
+    # Query MAST for light curves
+    print(f"Querying TIC {tic_id} from MAST...")
+    obs = Observations.query_criteria(provenance_name=('TESS-SPOC', 'SPOC', 'QLP'),
+                                      target_name=str(tic_id))
+    try:
+        data = Observations.get_product_list(obs)
+        mask = np.zeros(len(data), dtype=bool)
+        for ext in ('_lc.fits', '_llc.fits', '_tp.fits', '.pdf'):
+            mask |= np.char.endswith(data['productFilename'], ext)
+        data = data[mask]
+    except Exception:
+        data = Table()
+
+    # Initialize summary table
+    t = Table(masked=True)
+    t.add_column(Column(np.array(sectors).astype(int), name='Sector'))
+    for name in ['SPOC FFI', 'QLP LC', 'TESS-SPOC LC', 'SPOC LC']:
+        t.add_column(Column(np.zeros(len(sectors), dtype='|S1'), name=name))
+
+    data_files, data_origin, datasets, datasets_labels  = [], [], [], []
+
+    # Helper to move product to download_dir
+    def move_to_dir(filepath):
+        dst = os.path.join(base_dir, os.path.basename(filepath))
+        shutil.move(filepath, dst)
+        return dst
+
+    # Download priority: SPOC LC → TESS-SPOC LC → QLP LC → FFI
+    for i, sector in enumerate(t['Sector']):
+        downloaded = False
+
+        # SPOC short-cadence LC
+        for row in data:
+            if (row['project'] == 'SPOC' and
+                f"s{sector:04}" in row['productFilename'] and
+                row['productFilename'].endswith('_lc.fits')):
+                out = Observations.download_products(row)
+                if out['Status'][0] == 'COMPLETE':
+                    path = move_to_dir(out['Local Path'][0])
+                    data_files.append(path)
+                    data_origin.append('SPOC LC')
+                    t['SPOC LC'][i] = 'X'
+                    downloaded = True
+
+                    tt = Table.read(path)
+                    mask = (~np.isinf(tt['TIME']) & ~np.isnan(tt['TIME']) &
+                            ~np.isinf(tt['SAP_FLUX']) & ~np.isnan(tt['SAP_FLUX']) &
+                            (tt['SAP_FLUX'] > 0.1) & (tt['PDCSAP_FLUX'] > 0.1))
+                    tt = tt[mask]
+                    
+                    time = np.array(tt['TIME'], dtype=np.float64)+2457000
+                    flux =  np.array(tt['PDCSAP_FLUX'], dtype=np.float64)
+                    flux_err =  np.array(tt['PDCSAP_FLUX_ERR'], dtype=np.float64)
+                    sky_bkg =  np.array(tt['SAP_BKG'], dtype=np.float64)
 
 
-    if verbose : print(data_to_download)
-    data_to_download = vstack(data_to_download)
-
-
-    if data_type=='single_product':
-        # Now download the data
-        time, flux, flux_err = np.array([]),np.array([]),np.array([])
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            for i in range(len(data_to_download)):
-                out = Observations.download_products(data_to_download[i], download_dir=download_dir)
-                if out['Status'][0]=='COMPLETE':
-                    data = Table.read(out['Local Path'][0])
-                    if 'SPOC' in data_to_download['project'][i]:
-                        data = data[~np.isinf(data['TIME']) & ~np.isnan(data['TIME']) & ~np.isinf(data['SAP_FLUX']) & ~np.isnan(data['SAP_FLUX']) & (data['SAP_FLUX'] > 1) & (data['PDCSAP_FLUX'] > 1)]
-                        time = np.concatenate((time, np.array(data['TIME'])+2457000))
-                        flux = np.concatenate((flux, np.array(data['PDCSAP_FLUX'])))
-                        flux_err = np.concatenate((flux_err, np.array(data['PDCSAP_FLUX_ERR'])))
-                    if 'QLP' in data_to_download['project'][i]:
-                        #data = data[~np.isinf(data['TIME']) & ~np.isnan(data['TIME']) & ~np.isinf(data['SAP_FLUX']) & ~np.isnan(data['SAP_FLUX']) & (data['SAP_FLUX'] > 1) & (data['PDCSAP_FLUX'] > 1)]
-                        time = np.concatenate((time, np.array(data['TIME'])+2457000))
-                        if 'KSPSAP_FLUX' in data.colnames:
-                            flux = np.concatenate((flux, np.array(data['KSPSAP_FLUX'])))
-                            flux_err = np.concatenate((flux_err, np.array(data['KSPSAP_FLUX_ERR'])))
-                        if 'DET_FLUX' in data.colnames:
-                            flux = np.concatenate((flux, np.array(data['DET_FLUX'])))
-                            flux_err = np.concatenate((flux_err, np.array(data['DET_FLUX_ERR'])))
-        mask = np.isnan(time) | np.isnan(flux) | np.isnan(flux_err) | np.isinf(time) | np.isinf(flux) | np.isinf(flux_err)
-
-        # Now sigma clip
-        mask = mask & ~sigma_clip(flux, sigma=3,masked=True).mask
-
-        return photometry_time_series(time[~mask], flux[~mask], flux_err[~mask]), 'all_data'
-
-    elif data_type=='per_sector':
-        data_return = []
-        data_return_labels=[]
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            for i in range(len(data_to_download)):
-                out = Observations.download_products(data_to_download[i], download_dir=download_dir)
-                if out['Status'][0]=='COMPLETE':
-                    data = Table.read(out['Local Path'][0])
-                    if 'SPOC' in data_to_download['project'][i]:
-                        data = data[~np.isinf(data['TIME']) & ~np.isnan(data['TIME']) & ~np.isinf(data['SAP_FLUX']) & ~np.isnan(data['SAP_FLUX']) & (data['SAP_FLUX'] > 1) & (data['PDCSAP_FLUX'] > 1)]
-                        time = np.array(data['TIME'])+2457000
-                        flux = np.array(data['PDCSAP_FLUX'])
-                        flux_err = np.array(data['PDCSAP_FLUX_ERR'])
-                    if 'QLP' in data_to_download['project'][i]:
-                        #data = data[~np.isinf(data['TIME']) & ~np.isnan(data['TIME']) & ~np.isinf(data['SAP_FLUX']) & ~np.isnan(data['SAP_FLUX']) & (data['SAP_FLUX'] > 1) & (data['PDCSAP_FLUX'] > 1)]
-                        time = np.array(data['TIME'])+2457000
-                        if 'KSPSAP_FLUX' in data.colnames:
-                            flux = np.array(data['KSPSAP_FLUX'])
-                            flux_err = np.array(data['KSPSAP_FLUX_ERR'])
-                        if 'DET_FLUX' in data.colnames:
-                            flux =np.array(data['DET_FLUX'])
-                            flux_err = np.array(data['DET_FLUX_ERR'])
-                            
-                    mask = ~(np.isnan(time) | np.isnan(flux) | np.isnan(flux_err) | np.isinf(time) | np.isinf(flux) | np.isinf(flux_err))
-                    # Now sigma clip
-                    if sigma is not None : mask = mask & ~sigma_clip(flux, masked=True, sigma=sigma).mask
-                    time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
+                    if time.shape[0]<10 : continue
                     if (bin_length is not None) and np.median(np.gradient(time))<(0.5*bin_length): 
                         time, flux, flux_err, c = bin_data(time,flux, bin_length)
                         mask = c>2
                         time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
-                    data_return.append(photometry_time_series(time, flux, flux_err))
-                    data_return_labels.append('Sector {:}'.format(data_to_download['sector'][i]))
+                        
+                    datasets.append(photometry_time_series(time, flux, flux_err, sky_bkg=sky_bkg if bin_length is None else None))
+                    datasets_labels.append('Sector {:}'.format(sector))
+                break
+        if downloaded: continue
 
-        return np.array(data_return), np.array(data_return_labels)
-    
-    elif data_type=='northern_duos':
-        data_year24 = data_to_download[data_to_download['sector']<=55]
-        data_after = data_to_download[data_to_download['sector']>55]
-        data_return = []
+        # TESS-SPOC FFI LC
+        for row in data:
+            if (row['project'] == 'TESS-SPOC' and
+                f"s{sector:04}" in row['productFilename'] and
+                row['productFilename'].endswith('_lc.fits')):
+                out = Observations.download_products(row)
+                if out['Status'][0] == 'COMPLETE':
+                    path = move_to_dir(out['Local Path'][0])
+                    data_files.append(path)
+                    data_origin.append('TESS-SPOC LC')
+                    t['TESS-SPOC LC'][i] = 'X'
+                    downloaded = True
 
-        # Now download the data
-        time, flux, flux_err = np.array([]),np.array([]),np.array([])
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            for i in range(len(data_year24)):
-                out = Observations.download_products(data_year24[i], download_dir=download_dir)
-                if out['Status'][0]=='COMPLETE':
-                    data = Table.read(out['Local Path'][0])
-                    if 'SPOC' in data_year24['project'][i]:
-                        data = data[~np.isinf(data['TIME']) & ~np.isnan(data['TIME']) & ~np.isinf(data['SAP_FLUX']) & ~np.isnan(data['SAP_FLUX']) & (data['SAP_FLUX'] > 1) & (data['PDCSAP_FLUX'] > 1)]
-                        time = np.concatenate((time, np.array(data['TIME'])+2457000))
-                        flux = np.concatenate((flux, np.array(data['PDCSAP_FLUX'])))
-                        flux_err = np.concatenate((flux_err, np.array(data['PDCSAP_FLUX_ERR'])))
-                    if 'QLP' in data_year24['project'][i]:
-                        #data = data[~np.isinf(data['TIME']) & ~np.isnan(data['TIME']) & ~np.isinf(data['SAP_FLUX']) & ~np.isnan(data['SAP_FLUX']) & (data['SAP_FLUX'] > 1) & (data['PDCSAP_FLUX'] > 1)]
-                        time = np.concatenate((time, np.array(data['TIME'])+2457000))
-                        if 'KSPSAP_FLUX' in data.colnames:
-                            flux = np.concatenate((flux, np.array(data['KSPSAP_FLUX'])))
-                            flux_err = np.concatenate((flux_err, np.array(data['KSPSAP_FLUX_ERR'])))
-                        if 'DET_FLUX' in data.colnames:
-                            flux = np.concatenate((flux, np.array(data['DET_FLUX'])))
-                            flux_err = np.concatenate((flux_err, np.array(data['DET_FLUX_ERR'])))
-            mask = np.isnan(time) | np.isnan(flux) | np.isnan(flux_err) | np.isinf(time) | np.isinf(flux) | np.isinf(flux_err)
+                    tt = Table.read(path)
+                    mask = (~np.isinf(tt['TIME']) & ~np.isnan(tt['TIME']) &
+                            ~np.isinf(tt['SAP_FLUX']) & ~np.isnan(tt['SAP_FLUX']) &
+                            (tt['SAP_FLUX'] > 0.1) & (tt['PDCSAP_FLUX'] > 0.1))
+                    tt = tt[mask]
+                    
+                    time = np.array(tt['TIME'], dtype=np.float64)+2457000
+                    flux =  np.array(tt['PDCSAP_FLUX'], dtype=np.float64)
+                    flux_err =  np.array(tt['PDCSAP_FLUX_ERR'], dtype=np.float64)
+                    sky_bkg =  np.array(tt['SAP_BKG'], dtype=np.float64)
 
-            # Now sigma clip
-            mask = mask & ~sigma_clip(flux, sigma=3,masked=True).mask
+                    if time.shape[0]<10 : continue
+                    if (bin_length is not None) and np.median(np.gradient(time))<(0.5*bin_length): 
+                        time, flux, flux_err, c = bin_data(time,flux, bin_length)
+                        mask = c>2
+                        time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
+                        
+                    datasets.append(photometry_time_series(time, flux, flux_err, sky_bkg=sky_bkg if bin_length is None else None))
+                    datasets_labels.append('Sector {:}'.format(sector))
+                break
+        if downloaded: continue
 
-            data_return.append(photometry_time_series(time[~mask], flux[~mask], flux_err[~mask]))
-            data_return_labels = ['Years 1 and 2']
+        # QLP LC
+        for row in data:
+            if (row['project'] == 'QLP' and
+                f"s{sector:04}" in row['productFilename'] and
+                row['productFilename'].endswith('_llc.fits')):
+                out = Observations.download_products(row)
+                if out['Status'][0] == 'COMPLETE':
+                    path = move_to_dir(out['Local Path'][0])
+                    data_files.append(path)
+                    data_origin.append('QLP LC')
+                    t['QLP LC'][i] = 'X'
+                    downloaded = True
 
-            # Now get others
-            for i in range(len(data_after)):
-                out = Observations.download_products(data_after[i], download_dir=download_dir)
-                if out['Status'][0]=='COMPLETE':
-                    data = Table.read(out['Local Path'][0])
-                    if 'SPOC' in data_after['project'][i]:
-                        data = data[~np.isinf(data['TIME']) & ~np.isnan(data['TIME']) & ~np.isinf(data['SAP_FLUX']) & ~np.isnan(data['SAP_FLUX']) & (data['SAP_FLUX'] > 1) & (data['PDCSAP_FLUX'] > 1)]
-                        time = np.array(data['TIME'])+2457000
-                        flux = np.array(data['PDCSAP_FLUX'])
-                        flux_err = np.array(data['PDCSAP_FLUX_ERR'])
-                    if 'QLP' in data_after['project'][i]:
-                        #data = data[~np.isinf(data['TIME']) & ~np.isnan(data['TIME']) & ~np.isinf(data['SAP_FLUX']) & ~np.isnan(data['SAP_FLUX']) & (data['SAP_FLUX'] > 1) & (data['PDCSAP_FLUX'] > 1)]
-                        time = np.array(data['TIME'])+2457000
-                        if 'KSPSAP_FLUX' in data.colnames:
-                            flux = np.array(data['KSPSAP_FLUX'])
-                            flux_err = np.array(data['KSPSAP_FLUX_ERR'])
-                        if 'DET_FLUX' in data.colnames:
-                            flux =np.array(data['DET_FLUX'])
-                            flux_err = np.array(data['DET_FLUX_ERR'])
-                mask = np.isnan(time) | np.isnan(flux) | np.isnan(flux_err) | np.isinf(time) | np.isinf(flux) | np.isinf(flux_err)
+                    tt = Table.read(path)
+                    mask = (~np.isinf(tt['TIME']) & ~np.isnan(tt['TIME']) &
+                            ~np.isinf(tt['SAP_FLUX']) & ~np.isnan(tt['SAP_FLUX']) &
+                            (tt['SAP_FLUX'] > 0.1) & (tt['QUALITY']==0))
+                    tt = tt[mask]
+                    
+                    time = np.array(tt['TIME'], dtype=np.float64)+2457000
+                    if 'DET_FLUX_ERR' in tt.colnames:
+                        flux =  np.array(tt['DET_FLUX'], dtype=np.float64)
+                        flux_err =  np.array(tt['DET_FLUX_ERR'], dtype=np.float64)
+                    else : 
+                        flux =  np.array(tt['KSPSAP_FLUX'], dtype=np.float64)
+                        flux_err =  np.array(tt['KSPSAP_FLUX_ERR'], dtype=np.float64) 
 
-                # Now sigma clip
-                mask = mask & ~sigma_clip(flux, sigma=3,masked=True).mask
+                    sky_bkg = np.array(tt['SAP_BKG'], dtype=np.float64)   
 
-                data_return.append(photometry_time_series(time[~mask], flux[~mask], flux_err[~mask]))
-                data_return_labels.append('Sector {:}'.format(data_after['sector'][i]))
-        return data_return, data_return_labels
+
+
+                    if time.shape[0]<10 : continue
+                    if (bin_length is not None) and np.median(np.gradient(time))<(0.5*bin_length): 
+                        time, flux, flux_err, c = bin_data(time,flux, bin_length)
+                        mask = c>2
+                        time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
+                        
+                    datasets.append(photometry_time_series(time, flux, flux_err, sky_bkg=sky_bkg if bin_length is None else None))
+                    datasets_labels.append('Sector {:}'.format(sector))
+
+                break
+        if downloaded: continue
+
+        # FFI custom extraction if requested
+        if use_ffi and len(data_ffi) > 0:
+            with tempfile.TemporaryDirectory() as tmp:
+                zipfile_path = f"{tmp}/cutout.zip"
+                cmd = (
+                    f'wget -q -O {zipfile_path} '
+                    f'"https://mast.stsci.edu/tesscut/api/v0.1/astrocut?ra={ra}&dec={dec}&y=10&x=10&sector={sector}"'
+                )
+                os.system(cmd)
+                with zipfile.ZipFile(zipfile_path, 'r') as zf:
+                    zf.extractall(tmp)
+                fits_file = glob.glob(f"{tmp}/*.fits")[0]
+                final_path = move_to_dir(fits_file)
+                data_files.append(final_path)
+                data_origin.append('FFI custom LC')
+                t['SPOC FFI'][i] = 'X'
+                downloaded = True
+
+                # Now create the lightcurve 
+                tpf = lk.targetpixelfile.TessTargetPixelFile(final_path)
+
+                # Inspect the TPF
+                tpf.plot(frame=0, title="Single Frame of TPF")
+
+                # Define a target mask (pixels containing the star)
+                # You can also interactively create it using `tpf.create_threshold_mask()`
+                target_mask = tpf.create_threshold_mask(threshold=3)  # 3 sigma above median
+
+                # Define a background mask (pixels far from the target)
+                # One way is to invert the target mask, but exclude edges
+                #background_mask = ~target_mask
+
+                # Define a background mask based on pixel flux statistics
+                # Here, we use frame 30 as a reference, similar to self.FLUX[30]
+                reference_frame = 30
+                flux_frame = tpf.flux[reference_frame]  # 2D array of pixels
+
+                # Create background mask: pixels below 30th percentile in this frame
+                background_mask = flux_frame < np.percentile(flux_frame, 30)
+
+                # Optional: make sure the background mask does not overlap the target mask
+                background_mask = background_mask & ~target_mask
+
+                # Extract target flux
+                target_flux = tpf.to_lightcurve(aperture_mask=target_mask)
+
+                # Estimate background flux (median over background pixels for each frame)
+                background_flux = tpf.to_lightcurve(aperture_mask=background_mask).flux
+                background_flux = background_flux.value.astype(np.float64)  # total background
+                #background_flux_per_frame = background_flux.mean(axis=1)
+
+                # Subtract background
+                corrected_flux = target_flux.flux.value.astype(np.float64) - target_mask.sum()*background_flux/background_mask.sum()
+
+                # Create a background-subtracted light curve object
+                lc_bgsub = lk.LightCurve(time=target_flux.time, flux=corrected_flux)
+
+                time = target_flux.time.value.astype(np.float64) + 2457000.0
+                flux = corrected_flux
+                flux_err = (np.ones(corrected_flux.shape[0])*median_abs_deviation(corrected_flux[~np.isnan(corrected_flux) & ~np.isinf(corrected_flux)])).astype(np.float64)
+                sky_bkg = background_flux
+
+
+                mask = ~(np.isnan(flux) | np.isinf(flux) | np.isnan(flux_err) | np.isinf(flux_err)| np.isnan(sky_bkg) | np.isinf(sky_bkg))
+                time, flux, flux_err, sky_bkg = time[mask], flux[mask], flux_err[mask], sky_bkg[mask]
+
+
+                if time.shape[0]<10 : continue
+                if (bin_length is not None) and np.median(np.gradient(time))<(0.5*bin_length): 
+                    time, flux, flux_err, c = bin_data(time,flux, bin_length)
+                    mask = c>2
+                    time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
+
+
+                plt.close()
+                    
+                datasets.append(photometry_time_series(time, flux, flux_err, sky_bkg=sky_bkg if bin_length is None else None))
+                datasets_labels.append('Sector {:}'.format(sector))
+
+        if not downloaded:
+            data_files.append('')
+            data_origin.append('Missing')
+
+    # Apply masks column by column
+    for col in ['SPOC FFI', 'QLP LC', 'TESS-SPOC LC', 'SPOC LC']:
+        t[col].mask = t[col] != 'X'
+
+    t['Source'] = data_origin
+    t['File'] = data_files
+
+    print("\n✅ Download summary:")
+    t.pprint(max_lines=1000)
+
+    # If using temp dir, warn user where data lives
+    if auto_cleanup:
+        print(f"\nTemporary data stored in: {base_dir}")
+        print("This directory will be deleted when the program exits.")
+
+    return t, np.array(datasets), np.array(datasets_labels), base_dir

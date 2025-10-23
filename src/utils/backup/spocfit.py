@@ -12,22 +12,14 @@ def main():
     import pyqtgraph as pg
     from astropy.io import fits
     from PyQt5.QtCore import Qt
-    from PyQt5.QtWidgets import QApplication, QHBoxLayout, QLabel, QSizePolicy, QSlider, QSpacerItem, \
-        QVBoxLayout, QWidget, QLineEdit , QCheckBox, QProgressBar, QPlainTextEdit, QRadioButton
-    # Enable High DPI scaling for better display on high-resolution screens
-    try:
-        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
-    except Exception as e:
-        print('Warning enabling High DPI attributes:', e)
-
+    from PyQt5.QtWidgets import QApplication, QHBoxLayout, QLabel, QSizePolicy, QSlider, QSpacerItem, QVBoxLayout, QWidget, QLineEdit , QCheckBox, QProgressBar, QPlainTextEdit, QRadioButton
     from pyqtgraph.dockarea import DockArea, Dock
     import pyqtgraph.exporters
     import tempfile , glob, time, pickle
     from astroquery.mast import Catalogs
     from astropy import constants
     from scipy.optimize import differential_evolution
-    from scipy.stats import median_abs_deviation
+
     import warnings
     warnings.filterwarnings("ignore")
 
@@ -78,71 +70,6 @@ def main():
             # Create the GUI
             self.app = pg.mkQApp("SPOCFIT") 
             self.win = QtGui.QMainWindow()
-            # Enable dock nesting and set modern Fusion style + theme toggle
-            try:
-                self.win.setDockNestingEnabled(True)
-            except Exception:
-                pass
-
-            # Theme support: apply Fusion style and define light/dark palettes
-            from PyQt5.QtWidgets import QAction
-            def apply_light_theme():
-                QApplication.setStyle('Fusion')
-                pal = QApplication.palette()
-                # light base adjustments
-                pal.setColor(pal.Window, Qt.white)
-                pal.setColor(pal.WindowText, Qt.black)
-                pal.setColor(pal.Base, Qt.white)
-                pal.setColor(pal.AlternateBase, Qt.lightGray)
-                pal.setColor(pal.ToolTipBase, Qt.black)
-                pal.setColor(pal.ToolTipText, Qt.white)
-                pal.setColor(pal.Text, Qt.black)
-                pal.setColor(pal.Button, Qt.white)
-                pal.setColor(pal.ButtonText, Qt.black)
-                QApplication.setPalette(pal)
-                self._theme = 'light'
-
-            def apply_dark_theme():
-                QApplication.setStyle('Fusion')
-                pal = QApplication.palette()
-                # dark base adjustments
-                pal.setColor(pal.Window, Qt.black)
-                pal.setColor(pal.WindowText, Qt.white)
-                pal.setColor(pal.Base, Qt.black)
-                pal.setColor(pal.AlternateBase, Qt.darkGray)
-                pal.setColor(pal.ToolTipBase, Qt.white)
-                pal.setColor(pal.ToolTipText, Qt.white)
-                pal.setColor(pal.Text, Qt.white)
-                pal.setColor(pal.Button, Qt.darkGray)
-                pal.setColor(pal.ButtonText, Qt.white)
-                QApplication.setPalette(pal)
-                self._theme = 'dark'
-
-            # Attach the theme functions to self so other methods can call them
-            self.apply_light_theme = apply_light_theme
-            self.apply_dark_theme = apply_dark_theme
-            # Default to light theme
-            try:
-                self.apply_light_theme()
-            except Exception as e:
-                print('Warning applying theme:', e)
-
-            # Add a View menu with theme toggle
-            menubar = self.win.menuBar() if hasattr(self.win, 'menuBar') else None
-            if menubar is not None:
-                viewMenu = menubar.addMenu('View')
-                themeAction = QAction('Toggle Theme', self.win)
-                def _toggle():
-                    try:
-                        if getattr(self, '_theme', 'light') == 'light':
-                            self.apply_dark_theme()
-                        else:
-                            self.apply_light_theme()
-                    except Exception as e:
-                        print('Theme toggle error:', e)
-                themeAction.triggered.connect(_toggle)
-                viewMenu.addAction(themeAction)
-
 
             self.app.setStyleSheet("QLabel{font-size: 18pt;}")
             #################################################################
@@ -997,7 +924,7 @@ def main():
             self.data.add_column(Column(np.concatenate( [i.flux/np.median(i.flux)  for i in data]  ), name='PDCSAP_FLUX'))
             self.data.add_column(Column(np.concatenate( [i.flux_err/np.median(i.flux)  for i in data]  ), name='PDCSAP_FLUX_ERR'))
             self.data.add_column(Column(np.concatenate( [i.sky_bkg for i in data]  ), name='SAP_BKG'))
-            self.data.add_column( np.ones(len(self.data))*median_abs_deviation(self.data['SAP_BKG']), name='SAP_BKG_ERR')
+            self.data.add_column( np.ones(len(self.data))*np.std(self.data['SAP_BKG']), name='SAP_BKG_ERR')
 
             # bind the labels
             self.sector_info = [] 

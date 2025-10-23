@@ -1,4 +1,8 @@
 tests/
 build/
 dist/ 
-examples/duotransits/207501148/
+# Ignore everything under examples/duotransits
+examples/duotransits/*
+
+# But don't ignore Jupyter notebooks
+!examples/duotransits/*.ipynb

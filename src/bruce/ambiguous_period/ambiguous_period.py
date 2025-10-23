@@ -244,7 +244,15 @@ class ambiguous_period:
                 # if self.delta_L[j+1][i] < (-self.height) : ax[i][j+1].set_facecolor('xkcd:salmon')
 
         plt.tight_layout()
-        return fig, ax
+
+        def alias_colours_2_mask(alias_colours):
+            alias_colours_ = np.ones(alias_colours.shape, dtype=int)
+            alias_colours_[alias_colours=='xkcd:salmon'] = 0
+            alias_colours_[alias_colours=='xkcd:green'] = 2
+            return alias_colours_
+        
+        
+        return fig, ax, alias_colours_2_mask(alias_colours)
         
     def calculate_alias_probability_period(self,M_sun=1.,R_sun=1.):
         # Get the alias periods
