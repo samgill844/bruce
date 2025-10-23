@@ -1,10 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
-#define _USE_MATH_DEFINES
 #include <math.h>
 #include <omp.h>
 #define N_BIN_MAX 10000
 #define MAX_WINDOW_SIZE 1024
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 double bruce_loglike(const double y, const double yerr, const double model,
                 const double jitter, const int offset)
