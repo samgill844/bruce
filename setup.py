@@ -12,7 +12,7 @@ compiler = os.environ.get("CC", "")
 is_clang = "clang" in compiler or system == "darwin"
 
 # Base compile args
-compile_args = ["-O3", "-ffast-math"]
+compile_args = ["-std=c99" , "-O3", "-ffast-math"]
 link_args = []
 
 # Try to enable OpenMP safely
