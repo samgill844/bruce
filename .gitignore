@@ -6,3 +6,4 @@ examples/duotransits/*
 
 # But don't ignore Jupyter notebooks
 !examples/duotransits/*.ipynb
+!examples/duotransits/duos.csv
