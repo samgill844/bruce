@@ -14,15 +14,15 @@ double bruce_loglike(const double y, const double yerr, const double model,
     return loglikeliehood;
 }
 
-double bruce_loglike_call(const double y, const double yerr, const double model,
-                const double jitter, const int offset, const int size)
-{
-    double sum=0;
-    for (int i=0; i< size; i++)
-    {
-        sum += bruce_loglike(y, yerr, model,jitter, offset);
-    }
-}
+// double bruce_loglike_call(const double y, const double yerr, const double model,
+//                 const double jitter, const int offset, const int size)
+// {
+//     double sum=0;
+//     for (int i=0; i< size; i++)
+//     {
+//         sum += bruce_loglike(y, yerr, model,jitter, offset);
+//     }
+// }
 
 
 
@@ -423,7 +423,7 @@ double flux_drop_annulus(double d_radius, double k, double SBR, int ld_law, doub
 			F_ss = I_ss*2*M_PI*r_ss*dr;
 
 			if ((ra + k) < d_radius) fp = 0;
-			else if (rb >= (d_radius-k) & ra <= (d_radius + k))
+			else if ((rb >= (d_radius-k) & ra <= (d_radius + k)))
 			{
 				// Calculate intersection between the circle of star 2
 				// and the outer radius of the annuli, (ra)

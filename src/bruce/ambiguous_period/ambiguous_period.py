@@ -251,8 +251,8 @@ class ambiguous_period:
             alias_colours_[alias_colours=='xkcd:green'] = 2
             return alias_colours_
         
-        
-        return fig, ax, alias_colours_2_mask(alias_colours)
+        self.alias_mask = alias_colours_2_mask(alias_colours)
+        return fig, ax
         
     def calculate_alias_probability_period(self,M_sun=1.,R_sun=1.):
         # Get the alias periods
@@ -444,13 +444,7 @@ class ambiguous_period:
         # Now get a booleon mask of the transits
         visible_transits = np.abs(phases) < (phase_widths[:,np.newaxis]/2) # Make for a nice plot
         visible_transits[:,~time_mask] = 0.
-        # print((self.delta_L<-self.height).sum(axis=0)>0)
-        # print(~((self.delta_L>self.height).sum(axis=0)>0))
-        visible_transits[(self.delta_L<-self.height).sum(axis=0)>0]=0 # exclude bad ones
-        if True in ((self.delta_L>self.height).sum(axis=0)>0):
-            visible_transits[~((self.delta_L>self.height).sum(axis=0)>0)]=0 # Only show the solution
-
-
+        visible_transits[~(self.alias_mask[:,-1]==self.alias_mask.max())]=0 # exclude bad ones
 
         if visible_transits.sum()==0:
             print('No transists visible')
