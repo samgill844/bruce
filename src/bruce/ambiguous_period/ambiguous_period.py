@@ -487,7 +487,7 @@ class ambiguous_period:
     def plot_all_events(self, table,
                 resolution = 1*u.minute, output_dir='.'):
         for i in range(len(table)) :
-            output_file = output_dir + '/' + 'EVENTS_FROM_{:}_{:}.png'.format(table['observatory'][i], table['night'][i]) 
+            output_file = output_dir + '/' + '{:}_TIC-{:}_EVENT_FROM_{:}.png'.format(table['night'][i], table['tic_id'][i],  table['observatory'][i] )
             if os.path.isfile(output_file) : continue 
             else:
                 fig, _ = self.plot_event(table[i],resolution = resolution)
@@ -555,7 +555,7 @@ class ambiguous_period:
                                                                 (float(row['time_in_transit'])*1440))
 
         title +='\nObservatory : ' + row['observatory'] + ' [{:}]'.format(row['night'])
-        title += '\nAlias P{:.0f} [{:.5f} days]'.format(float(row['aliasP']), float(row['aliasPer']))
+        title += '\nAlias[s] P{:} [{:} days]'.format(row['aliasP'] , row['aliasPer'])
         plt.xlabel('Time')
         plt.ylabel('Altitude')
         plt.title(title, ha='left', loc='left')
