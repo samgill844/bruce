@@ -148,7 +148,7 @@ def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None,
                         time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
                         
                     datasets.append(photometry_time_series(time, flux, flux_err, sky_bkg=sky_bkg if bin_length is None else None))
-                    datasets_labels.append('Sector {:}'.format(sector))
+                    datasets_labels.append('Sector {:} [SPOC SHORT CADENCE]'.format(sector))
                 break
         if downloaded: continue
 
@@ -183,7 +183,7 @@ def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None,
                         time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
                         
                     datasets.append(photometry_time_series(time, flux, flux_err, sky_bkg=sky_bkg if bin_length is None else None))
-                    datasets_labels.append('Sector {:}'.format(sector))
+                    datasets_labels.append('Sector {:} [SPOC FFI]'.format(sector))
                 break
         if downloaded: continue
 
@@ -207,12 +207,16 @@ def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None,
                     tt = tt[mask]
                     
                     time = np.array(tt['TIME'], dtype=np.float64)+2457000
+                    flux =  np.array(tt['SAP_FLUX'], dtype=np.float64)
                     if 'DET_FLUX_ERR' in tt.colnames:
-                        flux =  np.array(tt['DET_FLUX'], dtype=np.float64)
+                        #flux =  np.array(tt['DET_FLUX'], dtype=np.float64)
                         flux_err =  np.array(tt['DET_FLUX_ERR'], dtype=np.float64)
                     else : 
-                        flux =  np.array(tt['KSPSAP_FLUX'], dtype=np.float64)
+                        #flux =  np.array(tt['KSPSAP_FLUX'], dtype=np.float64)
                         flux_err =  np.array(tt['KSPSAP_FLUX_ERR'], dtype=np.float64) 
+
+
+            
 
                     sky_bkg = np.array(tt['SAP_BKG'], dtype=np.float64)   
 
@@ -225,7 +229,7 @@ def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None,
                         time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
                         
                     datasets.append(photometry_time_series(time, flux, flux_err, sky_bkg=sky_bkg if bin_length is None else None))
-                    datasets_labels.append('Sector {:}'.format(sector))
+                    datasets_labels.append('Sector {:} [QLP FFI]'.format(sector))
 
                 break
         if downloaded: continue
@@ -284,31 +288,35 @@ def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None,
                 # Subtract background
                 corrected_flux = target_flux.flux.value.astype(np.float64) - target_mask.sum()*background_flux/background_mask.sum()
 
-                # Create a background-subtracted light curve object
-                lc_bgsub = lk.LightCurve(time=target_flux.time, flux=corrected_flux)
+                # here we should check empty TPFs
+                if np.nanmedian(corrected_flux)>100 : 
+                    # Create a background-subtracted light curve object
+                    lc_bgsub = lk.LightCurve(time=target_flux.time, flux=corrected_flux)
 
-                time = target_flux.time.value.astype(np.float64) + 2457000.0
-                flux = corrected_flux
-                flux_err = (np.ones(corrected_flux.shape[0])*median_abs_deviation(corrected_flux[~np.isnan(corrected_flux) & ~np.isinf(corrected_flux)])).astype(np.float64)
-                sky_bkg = background_flux
-
-
-                mask = ~(np.isnan(flux) | np.isinf(flux) | np.isnan(flux_err) | np.isinf(flux_err)| np.isnan(sky_bkg) | np.isinf(sky_bkg))
-                time, flux, flux_err, sky_bkg = time[mask], flux[mask], flux_err[mask], sky_bkg[mask]
+                    time = target_flux.time.value.astype(np.float64) + 2457000.0
+                    flux = corrected_flux
+                    flux_err = (np.ones(corrected_flux.shape[0])*median_abs_deviation(corrected_flux[~np.isnan(corrected_flux) & ~np.isinf(corrected_flux)])).astype(np.float64)
+                    sky_bkg = background_flux
 
 
-                if time.shape[0]<10 : continue
-                if (bin_length is not None) and np.median(np.gradient(time))<(0.5*bin_length): 
-                    time, flux, flux_err, c = bin_data(time,flux, bin_length)
-                    mask = c>2
-                    time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
+                    mask = ~(np.isnan(flux) | np.isinf(flux) | np.isnan(flux_err) | np.isinf(flux_err)| np.isnan(sky_bkg) | np.isinf(sky_bkg))
+                    mask = mask & ~sigma_clip(flux, masked=True, sigma=5).mask
+                    time, flux, flux_err, sky_bkg = time[mask], flux[mask], flux_err[mask], sky_bkg[mask]
 
 
-                plt.close()
-                    
-                datasets.append(photometry_time_series(time, flux, flux_err, sky_bkg=sky_bkg if bin_length is None else None))
-                datasets_labels.append('Sector {:}'.format(sector))
+                    if time.shape[0]<10 : continue
+                    if (bin_length is not None) and np.median(np.gradient(time))<(0.5*bin_length): 
+                        time, flux, flux_err, c = bin_data(time,flux, bin_length)
+                        mask = c>2
+                        time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
 
+
+                    plt.close()
+                        
+                    datasets.append(photometry_time_series(time, flux, flux_err, sky_bkg=sky_bkg if bin_length is None else None))
+                    datasets_labels.append('Sector {:} [FFI custom]'.format(sector))
+                else : 
+                    print('MEDIAN CHECK not met : ' + str(np.nanmedian(corrected_flux)))
         if not downloaded:
             data_files.append('')
             data_origin.append('Missing')

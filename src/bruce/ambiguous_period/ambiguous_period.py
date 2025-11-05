@@ -182,6 +182,24 @@ class ambiguous_period:
         # event_mask_bin = ~event_mask_bin
 
 
+        # # Let's create the color mask
+        # alias_colours = np.empty((self.aliases.shape[0], 1 + len(phot_data)), dtype='<U11')
+        # alias_colours[:] = ''
+
+        # # Base red mask
+        # alias_colours[self.delta_L[0] < (-self.height)] = 'xkcd:salmon'
+
+        # for i in range(1, len(phot_data) + 1):
+        #     # Lets get the red mask 
+        #     red_mask = (alias_colours[:, :i]=='xkcd:salmon').any(axis=1) | (self.delta_L[i] < (-self.height))
+        #     if True in (self.delta_L[i] >self.height):
+        #         red_mask |= ~(self.delta_L[i] >self.height)
+
+        #     green_mask = ~(alias_colours[:, :i]=='xkcd:salmon').any(axis=1) & (self.delta_L[i] >self.height)
+        #     alias_colours[red_mask, i:] = 'xkcd:salmon'
+        #     alias_colours[green_mask, i:] = 'xkcd:green'
+
+
         # Let's create the color mask
         alias_colours = np.empty((self.aliases.shape[0], 1 + len(phot_data)), dtype='<U11')
         alias_colours[:] = ''
@@ -190,14 +208,25 @@ class ambiguous_period:
         alias_colours[self.delta_L[0] < (-self.height)] = 'xkcd:salmon'
 
         for i in range(1, len(phot_data) + 1):
-            # Lets get the red mask 
-            red_mask = (alias_colours[:, :i]=='xkcd:salmon').any(axis=1) | (self.delta_L[i] < (-self.height))
-            if True in (self.delta_L[i] >self.height):
-                red_mask |= ~(self.delta_L[i] >self.height)
 
-            green_mask = ~(alias_colours[:, :i]=='xkcd:salmon').any(axis=1) & (self.delta_L[i] >self.height)
+            previously_red = (alias_colours[:, :i] == 'xkcd:salmon').any(axis=1)
+            current_red = self.delta_L[i] < (-self.height)
+            current_green = self.delta_L[i] > self.height
+
+            # Only allow green if not previously red
+            green_allowed = current_green & (~previously_red)
+
+            # Base red mask update for this step
+            red_mask = previously_red | current_red
+
+            # If any allowed green exists, force all others red from now on
+            if green_allowed.any():
+                red_mask |= ~green_allowed
+
+            # Apply colours from this dataset onward
             alias_colours[red_mask, i:] = 'xkcd:salmon'
-            alias_colours[green_mask, i:] = 'xkcd:green'
+            alias_colours[green_allowed, i:] = 'xkcd:green'
+
 
         for i in range(alias_colours.shape[0]):
             for j in range(alias_colours.shape[1]):
