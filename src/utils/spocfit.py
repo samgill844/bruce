@@ -410,9 +410,13 @@ def main():
             self.stellar_pars_tic_input = QLineEdit(title.split('-')[1])
             self.lc_stellar_view.addWidget(self.stellar_pars_tic_input, row=0, col=1)
 
-            self.lc_stellar_view.addWidget(QLabel(text='Tmag'), row=0, col=2)
-            self.stellar_pars_Tmag = QLineEdit()
-            self.lc_stellar_view.addWidget(self.stellar_pars_Tmag, row=0, col=3)
+            # self.lc_stellar_view.addWidget(QLabel(text='Tmag'), row=0, col=2)
+            # self.stellar_pars_Tmag = QLineEdit()
+            # self.lc_stellar_view.addWidget(self.stellar_pars_Tmag, row=0, col=3)
+            self.stellar_pars_tic_reload_Btn = QtGui.QPushButton('Reload')
+            self.lc_stellar_view.addWidget(self.stellar_pars_tic_reload_Btn, row=0, col=3)
+            self.stellar_pars_tic_reload_Btn.clicked.connect(self.reload_tic_data)
+
 
             self.stellar_pars_tic_qry_Btn = QtGui.QPushButton('QUERY PARAMETERS')
             self.lc_stellar_view.addWidget(self.stellar_pars_tic_qry_Btn, row=1, col=0, colspan=2)
@@ -788,7 +792,16 @@ def main():
             text_derived += '\n{:} {:} {:}'.format(de.x[np.argwhere(fitted_parameters=='t_zero')[0][0]]+2457000, width, depth )
 
             # For monos sheet
-            text_derived += '\n{:} {:} {:}'.format(de.x[np.argwhere(fitted_parameters=='t_zero')[0][0]]+2457000, width, depth )
+
+            text_derived += '\n\nAmberMonos\n{:},{:},{:},{:},{:},'.format(de.x[np.argwhere(fitted_parameters=='t_zero')[0][0]]+2457000, 
+                                                   float(self.lc_pars_period_input.text()),
+                                                   de.x[np.argwhere(fitted_parameters=='radius_1')[0][0]],
+                                                   de.x[np.argwhere(fitted_parameters=='k')[0][0]],
+                                                   de.x[np.argwhere(fitted_parameters=='b')[0][0]])
+            try : text_derived += str(R1*sun2jup*self.results['pars']['k'][0]) + ','
+            except : text_derived += ','
+            text_derived += '{:},{:}'.format(width*24, depth )
+
 
             # Now write to results
             self.results_box.setPlainText(self.results['out_text'] + text_derived)
@@ -987,6 +1000,10 @@ def main():
             #self.update_normed_roi()           
 
 
+
+        def reload_tic_data(self, ):
+            self.load_data(int(self.stellar_pars_tic_input.text()))
+            self.clear_lc_model()
 
 
 
