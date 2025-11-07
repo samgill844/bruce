@@ -864,8 +864,8 @@ def main():
             par = float(catalogue['logg'][0])
             if ~np.isnan(par) and ~np.isinf(par) : self.stellar_pars_logg_input.setText(str(par))
 
-            par = float(catalogue['Tmag'][0])
-            if ~np.isnan(par) and ~np.isinf(par) : self.stellar_pars_Tmag.setText(str(par))
+            #par = float(catalogue['Tmag'][0])
+            #if ~np.isnan(par) and ~np.isinf(par) : self.stellar_pars_Tmag.setText(str(par))
 
 
             
@@ -1004,6 +1004,7 @@ def main():
         def reload_tic_data(self, ):
             self.load_data(int(self.stellar_pars_tic_input.text()))
             self.clear_lc_model()
+            self.query_tic_params()
 
 
 
@@ -1125,7 +1126,7 @@ def main():
     # Create a plot with some random data
     app = Window(title='TIC-{:}'.format(sys.argv[1]))
     app.load_data(sys.argv[1])
-
+    app.query_tic_params()
     app.draw_data()
 
 
