@@ -20,6 +20,9 @@ from astropy.coordinates import SkyCoord, EarthLocation, AltAz
 from bruce.data import bin_data
 from bruce.ambiguous_period.mono_event import photometry_time_series
 
+from matplotlib.ticker import MaxNLocator
+from matplotlib.dates import AutoDateLocator, DateFormatter
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 class ambiguous_period:
     def __init__(self, data, events=[], 
@@ -430,7 +433,7 @@ class ambiguous_period:
     def transit_plan(self, 
                     start=Time.now(), end = Time.now()+TimeDelta(30, format='jd'), resolution = 1*u.minute,
                     tic_id=None, observatory='Paranal',
-                    sun_max_alt=-15, target_min_alt=30, moon_min_seperation=20,
+                    sun_max_alt=-15, target_min_alt=30, moon_min_seperation=15,
                     min_time_in_transit=None, min_frac_in_transit=None):
         # Now query tic8 
         tic8 = Catalogs.query_object('TIC{:}'.format(tic_id), radius=.02, catalog="TIC")[0]
@@ -526,67 +529,234 @@ class ambiguous_period:
                 del fig
     
     def plot_event(self, row,
-                resolution = 1*u.minute):    
-        # Now query tic8 
-        tic8 = Catalogs.query_object('TIC{:}'.format(row['tic_id']), radius=.02, catalog="TIC")[0]
-        target = SkyCoord(tic8['ra']*u.deg, tic8['dec']*u.deg)
+                    resolution = 1*u.minute):    
+            # Now query tic8 
+            tic8 = Catalogs.query_object('TIC{:}'.format(row['tic_id']), radius=.02, catalog="TIC")[0]
+            target = SkyCoord(tic8['ra']*u.deg, tic8['dec']*u.deg)
+            
+            midday = Time(row['night']+'T12:00:00')
+            start = Observer(EarthLocation.of_site(row['observatory'])).sun_set_time(midday, which='next')
+            end = Observer(EarthLocation.of_site(row['observatory'])).sun_rise_time(midday, which='next')
+            time_range = time_grid_from_range((start,end), time_resolution=resolution)
+
+            # Define the AltAz frame
+            altaz_frame = AltAz(obstime=time_range, location=EarthLocation.of_site(row['observatory']))
+
+            # Transform target coordinates to AltAz
+            target_altaz = target.transform_to(altaz_frame)
+            
+            # Get Sun's ICRS coordinates
+            #sun_icrs = get_sun(time_range)
+
+            # Transform the Sun's position to AltAz
+            #sun_altaz = sun_icrs.transform_to(altaz_frame)
+            
+            # Lets get the moon
+            moon_icrs = get_body("moon", time_range, location=EarthLocation.of_site(row['observatory']))
+            moon_altaz = moon_icrs.transform_to(altaz_frame)
+            moon_target_seperation = moon_icrs.separation(target)
+
+            # getting the moon-target separation at the start and the end of the night
+            try:
+                moon_sep_start = float(moon_target_seperation[0].deg)
+                moon_sep_end = float(moon_target_seperation[-1].deg)
+                moon_sep_str = '{:.1f}°→{:.1f}°'.format(moon_sep_start, moon_sep_end)
+            except Exception:
+                moon_sep_str = 'N/A'
+
+            # getting the magnitude of the star
+            tmag = None
+            for col in ('Tmag','TESSmag','mag'):
+                if col in tic8.colnames:
+                    tmag = tic8[col]
+                    break
+            tmag_str = 'N/A' if tmag is None else '{:.2f}'.format(float(tmag))
+
+            plt.rcParams['font.family'] = 'Times New Roman'
+            fig, ax = plt.subplots(1,1, figsize=(8,4))
+            target_up = target_altaz.alt.deg>float(row['target_min_alt'])
+            target_in_transit = (time_range.jd > (float(row['transit_center'])-float(row['transit_width'])/2)) & (time_range.jd < (float(row['transit_center'])+float(row['transit_width'])/2))
+            # ax.plot_date(time_range.plot_date[target_up], target_altaz.alt.deg[target_up], 'k-', lw=1, alpha=1)
+            # ax.plot_date(time_range.plot_date[~target_up&~target_in_transit], target_altaz.alt.deg[~target_up&~target_in_transit], 'k--', lw=1, alpha = 0.4, label='TIC-{:}'.format(row['tic_id']))
+            # ax.plot_date(time_range.plot_date[target_in_transit&target_up], target_altaz.alt.deg[target_in_transit&target_up], 'r-', lw=1, alpha = 1)
+            # ax.plot_date(time_range.plot_date[target_in_transit&~target_up], target_altaz.alt.deg[target_in_transit&~target_up], 'r-', lw=1, alpha = 0.4)
+
+            # trying to fix the glitch where an extra dashed line is sometimes added
+            def _plot_contiguous(x_dates, y, mask, *args, **kwargs):
+                if not np.any(mask):
+                    return
+                idx = np.where(mask)[0]
+                # find contiguous runs
+                breaks = np.where(np.diff(idx) != 1)[0]
+                starts = np.concatenate(([idx[0]], idx[breaks + 1]))
+                ends = np.concatenate((idx[breaks], [idx[-1]]))
+                for s, e in zip(starts, ends):
+                    ax.plot_date(x_dates[s:e+1], y[s:e+1], *args, **kwargs)
+
+            x = time_range.plot_date
+            y = target_altaz.alt.deg
+            _plot_contiguous(x, y, target_up, 'k-', lw=1, alpha=1, label='above')
+            _plot_contiguous(x, y, (~target_up) & (~target_in_transit), 'k--', lw=1, alpha=0.4, label='below_nontransit')
+            _plot_contiguous(x, y, target_in_transit & target_up, 'r-', lw=1, alpha=1, label='in_transit')
+            _plot_contiguous(x, y, target_in_transit & (~target_up), 'r-', lw=1, alpha=0.4, label='in_transit_below')
+
+
+            # ax.plot_date([time_range.plot_date[target_in_transit][0]]*2, [target_altaz.alt.deg[target_in_transit][0]-5,target_altaz.alt.deg[target_in_transit][0]+5], 'r-', lw=1, alpha = 1)
+            # ax.plot_date([time_range.plot_date[target_in_transit][-1]]*2, [target_altaz.alt.deg[target_in_transit][-1]-5,target_altaz.alt.deg[target_in_transit][-1]+5], 'r-', lw=1, alpha = 1)
+
+            # making sure only the start and end of the transit are marked and adding a dot for the centre
+            vis_idx = np.where(target_in_transit)[0]
+            if vis_idx.size > 0:
+                first_idx, last_idx = vis_idx[0], vis_idx[-1]
+                # resolution in days (used as tolerance)
+                res_days = resolution.to(u.day).value
+                # only plot start tick if transit start is not the night start
+                if abs((time_range[first_idx] - time_range[0]).jd) > (res_days / 2.0):
+                    ax.plot_date([time_range.plot_date[first_idx]]*2,
+                                [target_altaz.alt.deg[first_idx]-5, target_altaz.alt.deg[first_idx]+5],
+                                'r-', lw=1.2, alpha=1)
+                # only plot end tick if transit end is not the night end
+                if abs((time_range[-1] - time_range[last_idx]).jd) > (res_days / 2.0):
+                    ax.plot_date([time_range.plot_date[last_idx]]*2,
+                                    [target_altaz.alt.deg[last_idx]-5, target_altaz.alt.deg[last_idx]+5],
+                                    'r-', lw=1.2, alpha=1)
+                
+                try:
+                    transit_center_jd = float(row['transit_center'])
+                    if np.isfinite(transit_center_jd):
+                        mid_idx = int(np.argmin(np.abs(time_range.jd - transit_center_jd)))
+                        # only plot if mid_idx is within the time_range
+                        if 0 <= mid_idx < len(time_range):
+                            mid_time_plot = time_range.plot_date[mid_idx]
+                            mid_alt = target_altaz.alt.deg[mid_idx]
+                            mid_visible = bool(target_up[mid_idx])
+                            ax.plot_date([mid_time_plot], [mid_alt],
+                                        marker='o', markersize=6,
+                                        color='red' if mid_visible else 'red',
+                                        alpha=1.0 if mid_visible else 0.4)
+                except Exception:
+                    pass
+                
+
+            xlim = ax.get_xlim()
+            ylim=ax.get_ylim()
+            ax.plot_date(time_range.plot_date, moon_altaz.alt.deg, 'b--', lw=1, alpha = 0.4, label='Moon')
+            ax.set(xlim=xlim, ylim=[0,90])
+            plt.tick_params(axis="y",direction="in", pad=6, labelsize=11)
+            plt.tick_params(axis="x",direction="in", pad=6, labelsize=11)
+
+            # function to format the no. dp on the periods to account for when there is more than one alias listed
+            def fmt_number_str(s, ndigits=2):
+                if s is None:
+                    return 'N/A'
+                s = str(s)
+                # handle comma-separated lists
+                if ',' in s:
+                    parts = [p.strip() for p in s.split(',')]
+                    return ', '.join(fmt_number_str(p, ndigits) for p in parts)
+                try:
+                    d = Decimal(s)
+                    quant = Decimal('1e-{}'.format(ndigits))
+                    dq = d.quantize(quant, rounding=ROUND_HALF_UP)
+                    # ensure fixed number of decimal places
+                    fmt = f'{{0:.{ndigits}f}}'
+                    return fmt.format(dq)
+                except (InvalidOperation, ValueError):
+                    return s
+
+            min_alt = 30.0
+        # clamp to current axis limits and draw translucent shading behind lines
+            y0, y1 = ax.get_ylim()
+            shade_bottom = max(y0, 0)
+            shade_top = min(min_alt, y1)
+            if shade_top > shade_bottom:
+                ax.axhspan(shade_bottom, shade_top, color='lightgrey', alpha=0.35, zorder=0)
         
-        midday = Time(row['night']+'T12:00:00')
-        start = Observer(EarthLocation.of_site(row['observatory'])).sun_set_time(midday, which='next')
-        end = Observer(EarthLocation.of_site(row['observatory'])).sun_rise_time(midday, which='next')
-        time_range = time_grid_from_range((start,end), time_resolution=resolution)
+            # plt.legend()
+            title = 'TIC-{:}'.format(row['tic_id'])
+            title += '\nTESS magnitude: {} mag'.format(tmag_str)
+            # title += '\nTransit depth: {} ppm'.format(transit_depth_str) ##need to do this still
 
-        # Define the AltAz frame
-        altaz_frame = AltAz(obstime=time_range, location=EarthLocation.of_site(row['observatory']))
+            title +='\nStar visible from: {:}→{:}'.format(time_range[target_up][0].datetime.__str__()[10:16],
+                                                    time_range[target_up][-1].datetime.__str__()[10:16])
+            
+            ##do we need this??
+            title +='\nTransit from {:}→{:} [{:.0f} mins - {:.2f}%]'.format(time_range[target_in_transit][0].datetime.__str__()[10:16],
+                                                    time_range[target_in_transit][-1].datetime.__str__()[10:16],
+                                                                    (time_range[target_in_transit][-1]-time_range[target_in_transit][0]).jd*1440,
+                                                                    100*float(row['frac_in_transit']))
+            title +='\nTransit visible from:  {:}→{:} [{:.0f} mins]'.format(time_range[target_in_transit&target_up][0].datetime.__str__()[10:16],
+                                                    # time_range[target_in_transit&target_up][-1].datetime.__str__()[10:16],
+                                                    #                 (float(row['time_in_transit'])*1440))
+                                                    time_range[target_in_transit][-1].datetime.__str__()[10:16],
+                                                                    (time_range[target_in_transit][-1]-time_range[target_in_transit][0]).jd*1440,
+                                                                    100*float(row['frac_in_transit']))
 
-        # Transform target coordinates to AltAz
-        target_altaz = target.transform_to(altaz_frame)
-        
-        # Get Sun's ICRS coordinates
-        #sun_icrs = get_sun(time_range)
+            title += '\nTransit depth: {} ppt'.format(fmt_number_str((row['transit_depth_1'])*1000, ndigits=3))
+            # title += '\nMoon separation: {}'.format(moon_sep_str)
+            title +='\nObservatory: ' + row['observatory'] + ' [{:}]'.format(row['night'])
+            # title += '\nAlias(es): P{:} [{:} days]'.format(row['aliasP'], row['aliasPer'])
+            title += '\nAlias(es): P{:} [{} days], {} remaining'.format(row['aliasP'], fmt_number_str(row['aliasPer'], ndigits=2), row['naliasesleft'])
+            plt.xlabel('Time', fontsize=12)
+            plt.ylabel('Altitude', fontsize=12)
+            plt.title(title, ha='left', loc='left', fontsize=12)
 
-        # Transform the Sun's position to AltAz
-        #sun_altaz = sun_icrs.transform_to(altaz_frame)
-        
-        # Lets get the moon
-        moon_icrs = get_body("moon", time_range, location=EarthLocation.of_site(row['observatory']))
-        moon_altaz = moon_icrs.transform_to(altaz_frame)
-        #moon_target_seperation = moon_icrs.separation(target)
-        
-        plt.rcParams['font.family'] = 'Times New Roman'
-        fig, ax = plt.subplots(1,1, figsize=(8,4))
-        target_up = target_altaz.alt.deg>float(row['target_min_alt'])
-        target_in_transit = (time_range.jd > (float(row['transit_center'])-float(row['transit_width'])/2)) & (time_range.jd < (float(row['transit_center'])+float(row['transit_width'])/2))
-        ax.plot_date(time_range.plot_date[target_up], target_altaz.alt.deg[target_up], 'k-', lw=1, alpha=1)
-        ax.plot_date(time_range.plot_date[~target_up&~target_in_transit], target_altaz.alt.deg[~target_up&~target_in_transit], 'k--', lw=1, alpha = 0.4, label='TIC-{:}'.format(row['tic_id']))
-        ax.plot_date(time_range.plot_date[target_in_transit&target_up], target_altaz.alt.deg[target_in_transit&target_up], 'r-', lw=1, alpha = 1)
-        ax.plot_date(time_range.plot_date[target_in_transit&~target_up], target_altaz.alt.deg[target_in_transit&~target_up], 'r-', lw=1, alpha = 0.4)
+            try:
+                n_moon_labels = 5  # change this to however many labels you want
+                n_pts = len(time_range)
+                if n_pts > 0:
+                    # choose up to n_moon_labels indices evenly spaced across the time_range
+                    n_labels = min(n_moon_labels, n_pts)
+                    indices = np.linspace(0, n_pts - 1, n_labels, dtype=int)
+                    # get axes limits and small paddings so text stays inside the axes
+                    xlim = ax.get_xlim()
+                    ylim = ax.get_ylim()
+                    xpad = (xlim[1] - xlim[0]) * 0.02
+                    ypad = (ylim[1] - ylim[0]) * 0.03
+                    voff = 2.0  # nominal vertical offset (degrees)
+                    for idx in indices:
+                        try:
+                            sep_deg = float(moon_target_seperation[idx].deg)
+                            x = time_range.plot_date[idx]
+                            y = moon_altaz.alt.deg[idx]
+                            # clamp text position so it remains inside axis bounds
+                            x_text = np.clip(x, xlim[0] + xpad, xlim[1] - xpad)
+                            y_text = np.clip(y + voff, ylim[0] + ypad, ylim[1] - ypad)
+                            # draw text without a white box; clip_on keeps it inside axes
+                            ax.text(x_text, y_text, f'{sep_deg:.1f}°',
+                                    color='blue', fontsize=9, ha='center', va='bottom',
+                                    clip_on=True)
+                        except Exception:
+                            # skip problematic index
+                            continue
+            except Exception:
+                pass
 
-        ax.plot_date([time_range.plot_date[target_in_transit][0]]*2, [target_altaz.alt.deg[target_in_transit][0]-5,target_altaz.alt.deg[target_in_transit][0]+5], 'r-', lw=1, alpha = 1)
-        ax.plot_date([time_range.plot_date[target_in_transit][-1]]*2, [target_altaz.alt.deg[target_in_transit][-1]-5,target_altaz.alt.deg[target_in_transit][-1]+5], 'r-', lw=1, alpha = 1)
+            def alt_to_airmass(alt_deg):
+                alt = np.asarray(alt_deg, dtype=float)
+                am = np.where(alt > 0, 1 / np.sin(np.deg2rad(alt)), np.nan)
+                return np.clip(am, 1, 10)
+            
+            ax2 = ax.twinx()
+            alt_ticks = np.array([30, 41.8, 56, 85])
+            am_ticks = alt_to_airmass(alt_ticks)
+            ax2.set_yticks(alt_ticks)
 
-        xlim = ax.get_xlim()
-        ylim=ax.get_ylim()
-        ax.plot_date(time_range.plot_date, moon_altaz.alt.deg, 'b--', lw=1, alpha = 0.4, label='Moon')
-        ax.set(xlim=xlim, ylim=ylim)
-        
-        
-        title = 'TIC-{:}'.format(row['tic_id'])
+            # Place ticks at the same altitude positions as left axis
+            ax2.set_yticks(alt_ticks)   # tick *positions* in data coords of the shared y-axis
+            ax2.set_ylim(ax.get_ylim()) # ensure they share limits
 
-        title +='\nVisible from {:} -> {:}'.format(time_range[target_up][0].datetime.__str__()[10:16],
-                                                time_range[target_up][-1].datetime.__str__()[10:16])
-        title +='\nTransit from {:} -> {:} [{:.0f} mins - {:.2f}%]'.format(time_range[target_in_transit][0].datetime.__str__()[10:16],
-                                                time_range[target_in_transit][-1].datetime.__str__()[10:16],
-                                                                (time_range[target_in_transit][-1]-time_range[target_in_transit][0]).jd*1440,
-                                                                100*float(row['frac_in_transit']))
-        title +='\nTransit visible from  {:} -> {:} [{:.0f} mins]'.format(time_range[target_in_transit&target_up][0].datetime.__str__()[10:16],
-                                                time_range[target_in_transit&target_up][-1].datetime.__str__()[10:16],
-                                                                (float(row['time_in_transit'])*1440))
+            # Replace tick labels with airmass equivalents
+            ax2.set_yticklabels([f'{am:.1f}' for am in am_ticks])
 
-        title +='\nObservatory : ' + row['observatory'] + ' [{:}]'.format(row['night'])
-        title += '\nAlias[s] P{:} [{:} days]'.format(row['aliasP'] , row['aliasPer'])
-        plt.xlabel('Time')
-        plt.ylabel('Altitude')
-        plt.title(title, ha='left', loc='left')
-        plt.tight_layout()
-        return fig, ax
+            ax2.set_ylabel('Airmass', fontsize=12)
+            ax2.tick_params(axis="y",direction="in", pad=6, labelsize=11)
+
+            locator = AutoDateLocator(maxticks=8)
+            formatter = DateFormatter('%m-%d %H')
+
+            ax.xaxis.set_major_locator(locator)
+            ax.xaxis.set_major_formatter(formatter)
+
+            plt.tight_layout()
+            return fig, ax

@@ -787,6 +787,9 @@ def main():
             except Exception as e: print(e)
             text_derived += '\n{:} {:} {:}'.format(de.x[np.argwhere(fitted_parameters=='t_zero')[0][0]]+2457000, width, depth )
 
+            # For monos sheet
+            text_derived += '\n{:} {:} {:}'.format(de.x[np.argwhere(fitted_parameters=='t_zero')[0][0]]+2457000, width, depth )
+
             # Now write to results
             self.results_box.setPlainText(self.results['out_text'] + text_derived)
             self.fitting_view_progress_bar.setRange(0,1)
