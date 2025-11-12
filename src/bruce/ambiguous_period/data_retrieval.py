@@ -300,7 +300,7 @@ def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None,
 
 
                     mask = ~(np.isnan(flux) | np.isinf(flux) | np.isnan(flux_err) | np.isinf(flux_err)| np.isnan(sky_bkg) | np.isinf(sky_bkg))
-                    mask = mask & ~sigma_clip(flux, masked=True, sigma=5).mask
+                    #mask = mask & ~sigma_clip(flux, masked=True, sigma=5).mask
                     time, flux, flux_err, sky_bkg = time[mask], flux[mask], flux_err[mask], sky_bkg[mask]
 
 
