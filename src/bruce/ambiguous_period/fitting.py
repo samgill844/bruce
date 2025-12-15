@@ -39,8 +39,10 @@ def chi_fixed_period(theta, data, theta_names,
         ax[1].plot(data.time-get_theta('t_zero',theta,theta_names), model, c='orange')
         ax[1].set(yticks=[])
 
-        fig.supxlabel('Time from Transit [d]', fontsize=18, x=0.55)
-        fig.supylabel('Flux', fontsize=18)
+        try:
+            fig.supxlabel('Time from Transit [d]', fontsize=18, x=0.55)
+            fig.supylabel('Flux', fontsize=18)
+        except : pass
                     
         #width = bruce.binarystar.transit_width(get_theta('radius_1',theta,theta_names), get_theta('k',theta,theta_names), get_theta('b',theta,theta_names), period=fit_period)
         #ax[1].set_xlim(get_theta('t_zero',theta,theta_names)-width, get_theta('t_zero',theta,theta_names)+width)
