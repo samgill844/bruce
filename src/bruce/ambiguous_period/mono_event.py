@@ -56,10 +56,10 @@ class photometry_time_series:
         fig, ax = plt.subplots(len(segments), 1, figsize = (6,4*len(segments)/3))
         ax = np.atleast_1d(ax)
         for i in range(len(segments)):
-            ax[i].errorbar(self.time[segments[i]], self.flux[segments[i]], yerr=self.flux_err[segments[i]], fmt='k.', markersize=1, alpha=data_alpha)
-            ax[i].set(xlabel='Time [day]', ylabel='Flux')
+            ax[i].errorbar(self.time[segments[i]]-2457000, self.flux[segments[i]], yerr=self.flux_err[segments[i]], fmt='k.', markersize=1, alpha=data_alpha)
+            ax[i].set(xlabel='Time [BTJD]', ylabel='Flux')
             if self.w is not None : 
-                ax[i].plot(self.time[segments[i]], self.w[segments[i]], c='orange', zorder=10, lw=1)
+                ax[i].plot(self.time[segments[i]]-2457000, self.w[segments[i]], c='orange', zorder=10, lw=1)
         plt.tight_layout()
         return fig, ax
 

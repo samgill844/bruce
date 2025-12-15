@@ -2,6 +2,11 @@ import bruce_c, numpy as np
 from scipy.signal import savgol_filter
 from scipy.ndimage.filters import maximum_filter, median_filter
 from scipy.interpolate import UnivariateSpline
+from astropy.table import Table
+import numpy as np, bruce
+from scipy.interpolate import CubicSpline
+from scipy.stats import median_abs_deviation
+from astropy.stats import sigma_clip
 
 ###############################################################
 #                  bruce_c wrappers                           #
@@ -16,6 +21,33 @@ def check_proximity_of_timestamps(time_trial, time, width) : return bruce_c.chec
 ###############################################################
 #                  Other functions                            #
 ###############################################################
+def find_optimal_ngts_filter_window(time, flux, windows = np.arange(0.5, 10.5, 0.01)[::-1], verbose=False, tolerence=0.05):
+    flux = flux / np.nanmedian(flux)
+    time, flux, flux_err, c = bruce.data.bin_data(time,flux, 0.5/24)
+    mask = (c>5) & ~sigma_clip(flux, masked=True, sigma=5).mask
+    time, flux, flux_err, c = time[mask], flux[mask], flux_err[mask], c[mask]
+    measured_noise = 1e6*median_abs_deviation(flux)
+    theoretical_noise = np.interp(cat['Tmag'][0], noise_x, noise_y)
+    if verbose:
+        print('Measured noise : {:,} ppm per 30 min integration'.format(int(measured_noise)))
+        print('Target noise : {:,} ppm per 30 min integration'.format(int(theoretical_noise)))
+        
+    for window in windows:
+        w = bruce.data.median_filter(time, flux, bin_size=window)
+        measured_noise=1e6*median_abs_deviation(flux/w)
+        #if verbose : print('   window : {:.2f}   ->   {:,} ppm per 30 min integration'.format(window, measured_noise))
+        if (measured_noise/theoretical_noise) < (1+tolerence) :
+            if verbose : print('Best window is {:}'.format(window))
+            return window,  time, flux, flux_err, c, w
+    
+    # Here, no optimal window found
+    if verbose: print('No Optimal window found')
+    window = 2
+    w = bruce.data.median_filter(time, flux, bin_size=window)
+    return window,  time, flux, flux_err, c, w
+
+
+
 def find_nights_from_data(x, dx_lim):
     '''
     Split array buy time gaps. Can be used to get individual nights in datasets.

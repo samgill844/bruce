@@ -3,7 +3,13 @@ build/
 dist/ 
 # Ignore everything under examples/duotransits
 examples/duotransits/*
+examples/monotransits/*
+examples/solved_systems/*
 
 # But don't ignore Jupyter notebooks
 !examples/duotransits/*.ipynb
 !examples/duotransits/duos.csv
+!examples/monotransits/*.ipynb
+!examples/monotransits/duos.csv
+!examples/solved_systems/solved_systems.csv
+

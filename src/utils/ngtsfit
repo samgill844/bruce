@@ -1,0 +1,38 @@
+
+
+
+
+def main():
+
+
+    import multiprocessing, multiprocess,  emcee, corner
+    from opcode import hasconst
+    from statistics import median
+    from tkinter import E
+    from pyqtgraph.Qt import QtGui, QtCore
+    import numpy as np, sys, os, pyqtgraph as pg, bruce
+    from astropy.table import Table, vstack, Column
+    from scipy.stats import median_abs_deviation
+    import pyqtgraph as pg
+    from astropy.io import fits
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QApplication, QHBoxLayout, QLabel, QSizePolicy, QSlider, QSpacerItem, \
+        QVBoxLayout, QWidget, QLineEdit , QCheckBox, QProgressBar, QPlainTextEdit, QRadioButton
+    # Enable High DPI scaling for better display on high-resolution screens
+    try:
+        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    except Exception as e:
+        print('Warning enabling High DPI attributes:', e)
+
+    from pyqtgraph.dockarea import DockArea, Dock
+    import pyqtgraph.exporters
+    import tempfile , glob, time, pickle
+    from astroquery.mast import Catalogs
+    from astropy import constants
+    from scipy.optimize import differential_evolution
+    from scipy.stats import median_abs_deviation
+    import warnings
+    warnings.filterwarnings("ignore")
+
+
