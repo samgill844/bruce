@@ -65,6 +65,7 @@ setup(
             "lcmatch = utils.lcmatch:main",
             "tesstpf = utils.tesstpf:main",
             "spocfit = utils.spocfit:main",
+            "predict = utils.predict:main",
         ],
     },
 )

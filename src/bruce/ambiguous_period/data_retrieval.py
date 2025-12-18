@@ -14,20 +14,39 @@ from scipy.stats import median_abs_deviation
 import zipfile
 import multiprocessing as mp
 import os
+import zipfile
+import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+
+# def extract_zip(zipfile_path, tmp):
+#     with zipfile.ZipFile(zipfile_path, 'r') as zf:
+#         zf.extractall(tmp)
+
+# def safe_extract(zipfile_path, tmp, timeout=30):
+#     p = mp.Process(target=extract_zip, args=(zipfile_path, tmp))
+#     p.start()
+#     p.join(timeout)
+
+#     if p.is_alive():
+#         p.terminate()
+#         p.join()
+#         raise TimeoutError(f"Extraction timed out after {timeout} seconds")
 
 def extract_zip(zipfile_path, tmp):
     with zipfile.ZipFile(zipfile_path, 'r') as zf:
         zf.extractall(tmp)
 
 def safe_extract(zipfile_path, tmp, timeout=30):
-    p = mp.Process(target=extract_zip, args=(zipfile_path, tmp))
-    p.start()
-    p.join(timeout)
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        future = ex.submit(extract_zip, zipfile_path, tmp)
+        try:
+            future.result(timeout=timeout)
+        except TimeoutError:
+            raise TimeoutError(
+                "Extraction timed out after {} seconds".format(timeout)
+            )
 
-    if p.is_alive():
-        p.terminate()
-        p.join()
-        raise TimeoutError(f"Extraction timed out after {timeout} seconds")
+
 
 
 def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None, bin_length=None):
