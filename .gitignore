@@ -5,6 +5,7 @@ dist/
 examples/duotransits/*
 examples/monotransits/*
 examples/solved_systems/*
+examples/solved_systems/ttvs/*
 
 # But don't ignore Jupyter notebooks
 !examples/duotransits/*.ipynb
