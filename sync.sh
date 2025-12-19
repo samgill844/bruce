@@ -1,0 +1,1 @@
+rsync -rP * ops@ngtshead.warwick.ac.uk:/home/ops/dev/bruce-local

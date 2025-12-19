@@ -66,6 +66,8 @@ setup(
             "tesstpf = utils.tesstpf:main",
             "spocfit = utils.spocfit:main",
             "predict = utils.predict:main",
+            "j2d = utils.j2d:main",
+            "tj2d = utils.tj2d:main",
         ],
     },
 )
