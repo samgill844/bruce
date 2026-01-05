@@ -197,8 +197,20 @@ class mono_event():
 
 
         # Now get errors
-        weights = np.exp(-(self.de_event_with_fixed_period.population_energies - np.min(self.de_event_with_fixed_period.population_energies)))
+        # weights = np.exp(-(self.de_event_with_fixed_period.population_energies - np.min(self.de_event_with_fixed_period.population_energies)))
+
+        res = self.de_event_with_fixed_period
+
+        if hasattr(res, "population_energies"):
+            energies = res.population_energies
+        else:
+            # Fallback for old SciPy
+            # res.fun is the best solution value
+            energies = np.array([res.fun])
+        weights = np.exp(-(energies - np.min(energies)))
         weights /= np.sum(weights)
+
+
         mean = np.average(self.de_event_with_fixed_period.population, axis=0, weights=weights)
         cov  = np.cov(self.de_event_with_fixed_period.population.T, aweights=weights)
         self.x_uncertainties = np.sqrt(np.diag(cov))
