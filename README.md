@@ -181,3 +181,15 @@ routines adapted from Pierre Maxted's GPL-licensed `ellc` code. Attribution and
 modification details are provided in [NOTICE.md](NOTICE.md).
 
 For versioned GitHub releases and optional PyPI publication, see [RELEASING.md](RELEASING.md).
+
+## Documentation
+
+The Sphinx user guide in [docs/](docs/index.rst) includes GitHub installation, runnable transit and RV examples, template matching, an orbit GIF and API references. To build and view it locally:
+
+```bash
+python -m pip install -r docs/requirements.txt
+python -m sphinx -W --keep-going -b html docs docs/_build/html
+python -m http.server 8000 --directory docs/_build/html
+```
+
+Open <http://localhost:8000>. BRUCE must be installed to run the example scripts; the HTML build itself reads the committed documentation and images. See [the build guide](docs/building.rst) to regenerate examples and API signatures.

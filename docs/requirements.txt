@@ -1,0 +1,4 @@
+# Sphinx 5 supports the package's Python 3.9 baseline.
+Sphinx>=5,<8
+matplotlib>=3.5
+Pillow>=9

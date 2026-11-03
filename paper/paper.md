@@ -65,13 +65,13 @@ On an Intel Core i7-9750H at a nominal 2.60 GHz, with six physical cores, Python
 
 ![Direct C likelihood throughput and OpenMP scaling for complete model evaluations. Left: reciprocal median call time with one thread; shading spans reciprocals of the upper and lower timing quartiles. Right: one-thread divided by four-thread median call time. Labels specify eccentricity and exposure treatment. The same retained benchmark data underpin both panels; these are local BRUCE measurements, not comparisons with competing packages.\label{fig:performance}](figures/performance.png){width="95%"}
 
-These tests are hardware dependent; multiprocessing analyses should control OpenMP threads to avoid oversubscription. Users should be aware of the `OMP_NUM_THREADS` environment variable to control the number of threads used when calculating a log-likelihood or generating a model. While OpenMP is resilient, users should set it to 1 when fitting data with multiprocessing (e.g. with emcee).
+These tests are hardware dependent; multiprocessing analyses should control OpenMP threads to avoid oversubscription. Users should be aware of the `OMP_NUM_THREADS` environment variable to control the number of threads used when calculating a log-likelihood or generating a model. Users should set it to 1 when fitting data with multiprocessing (e.g.  emcee).
 
 # Research impact statement
 
 BRUCE grew from the need to search and fit large photometric datasets efficiently, particularly TESS and NGTS long-period candidates. The author's recovery programme includes TIC-238855958, TIC-231005575 and NGTS-11 b [@Gill2020TIC; @Gill2020Binary; @Gill2020NGTS11], followed by TOI-2447 b/NGTS-29 b [@Gill2024]; the TESS duotransit catalogue of @Hawthorn2024 further motivates tools for ambiguous periods and targeted monitoring. These studies motivate BRUCE's workflows; they do not all use the present release.
 
-BRUCE provides undergraduate and postgraduate students, as well as established researchers, with tools to find, fit and prepare planetary-system analyses for publication. The educational and research scope of BRUCE lowers the amount of processing needed to move between candidate detection, parameter estimation and follow-up planning. Reproducible tests, benchmarks and regression checks are provided.
+BRUCE also provides undergraduate and postgraduate students, as well as established researchers, with tools to find, fit and prepare planetary-system analyses for publication. The educational and research scope of BRUCE lowers the amount of processing needed to move between candidate detection, parameter estimation and follow-up planning. Reproducible tests, benchmarks and regression checks are provided.
 
 # AI usage disclosure
 

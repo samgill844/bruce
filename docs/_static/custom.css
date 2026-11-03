@@ -1,0 +1,6 @@
+div.document { width: 1120px; }
+div.body { min-width: 0; max-width: 850px; }
+div.body img { max-width: 100%; height: auto; }
+pre { overflow-x: auto; }
+dt.sig { overflow-wrap: anywhere; }
+@media screen and (max-width: 1150px) { div.document { width: auto; } }

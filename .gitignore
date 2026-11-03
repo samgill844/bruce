@@ -40,3 +40,5 @@ mastDownload/
 /src/bruce_c/simd/timing_aligned
 
 sync.sh
+# Sphinx HTML and doctrees
+/docs/_build/
