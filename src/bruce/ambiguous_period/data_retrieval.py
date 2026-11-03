@@ -1,5 +1,6 @@
 import os, json, urllib.request, tempfile, zipfile, glob, shutil
 import numpy as np
+np.int = int 
 from astropy.table import Table, Column, vstack
 from astroquery.mast import Observations
 from astropy.io import fits
@@ -49,7 +50,7 @@ def safe_extract(zipfile_path, tmp, timeout=30):
 
 
 
-def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None, bin_length=None):
+def download_tess_data(tic_id, max_sector=None, only_full_frame_lc=False, use_ffi=True, download_dir=None, bin_length=None, sector=None, reference_frame=100):
     """
     Download available TESS data (SPOC, QLP, and optionally FFI) for a target.
     
@@ -81,6 +82,15 @@ def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None,
     tic8 = Catalogs.query_object('TIC{:}'.format(tic_id), radius=.02, catalog="TIC")
     if len(tic8)==0 : raise ValueError('No obsject found :( ')
     tic8 = tic8[0]
+    # from pyngts.ngts_db import NGTS_DB 
+    # DB = NGTS_DB()
+    # qry = 'SELECT * from catalogues.tic8 WHERE tic_id={:};'.format(tic_id)
+    # print(qry)
+    # tic8 = DB.custom_query(qry, one=True)
+    # tic8['ra'] = tic8['ra_deg']
+    # tic8['dec'] = tic8['dec_deg']
+
+
     ra, dec = tic8['ra'], tic8['dec']
 
     def query_tesscut(product=None):
@@ -119,8 +129,9 @@ def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None,
     # Combine and group by sector
     total = vstack((data_ffi, data_spoc)).group_by('sector')
     sectors = total.groups.keys
+    int_sectors = np.array([int(i) for i in sectors['sector']])
     if max_sector:
-        sectors = sectors[sectors['sector'] <= max_sector]
+        sectors = sectors[int_sectors <= max_sector]
 
     # Query MAST for light curves
     print(f"Querying TIC {tic_id} from MAST...")
@@ -141,6 +152,14 @@ def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None,
     for name in ['SPOC FFI', 'QLP LC', 'TESS-SPOC LC', 'SPOC LC']:
         t.add_column(Column(np.zeros(len(sectors), dtype='|S1'), name=name))
 
+    print('before')
+    print(t['Sector'], sector)
+    if sector is not None: 
+        print('Trimming to only sector {:}'.format(sector))
+        t = t[t['Sector']==sector]
+        print('Summary')
+        print(t)
+
     data_files, data_origin, datasets, datasets_labels  = [], [], [], []
 
     # Helper to move product to download_dir
@@ -157,7 +176,7 @@ def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None,
         for row in data:
             if (row['project'] == 'SPOC' and
                 f"s{sector:04}" in row['productFilename'] and
-                row['productFilename'].endswith('_lc.fits')):
+                row['productFilename'].endswith('_lc.fits')) and (not only_full_frame_lc):
                 out = Observations.download_products(row)
                 if out['Status'][0] == 'COMPLETE':
                     path = move_to_dir(out['Local Path'][0])
@@ -282,79 +301,92 @@ def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None,
                 os.system(cmd)
                 # with zipfile.ZipFile(zipfile_path, 'r') as zf:
                 #     zf.extractall(tmp)
-                safe_extract(zipfile_path, tmp, timeout=10)
-                fits_file = glob.glob(f"{tmp}/*.fits")[0]
-                final_path = move_to_dir(fits_file)
-                data_files.append(final_path)
-                data_origin.append('FFI custom LC')
-                t['SPOC FFI'][i] = 'X'
-                downloaded = True
+                try : 
+                    safe_extract(zipfile_path, tmp, timeout=10)
+                except : 
+                    pass
+                fits_file = glob.glob(f"{tmp}/*.fits")
+                if len(fits_file)>0:
+                    final_path = move_to_dir(fits_file[0])
+                    data_files.append(final_path)
+                    data_origin.append('FFI custom LC')
+                    t['SPOC FFI'][i] = 'X'
+                    downloaded = True
 
-                # Now create the lightcurve 
-                tpf = lk.targetpixelfile.TessTargetPixelFile(final_path)
-
-                # Inspect the TPF
-                tpf.plot(frame=0, title="Single Frame of TPF")
-
-                # Define a target mask (pixels containing the star)
-                # You can also interactively create it using `tpf.create_threshold_mask()`
-                target_mask = tpf.create_threshold_mask(threshold=3)  # 3 sigma above median
-
-                # Define a background mask (pixels far from the target)
-                # One way is to invert the target mask, but exclude edges
-                #background_mask = ~target_mask
-
-                # Define a background mask based on pixel flux statistics
-                # Here, we use frame 30 as a reference, similar to self.FLUX[30]
-                reference_frame = 30
-                flux_frame = tpf.flux[reference_frame]  # 2D array of pixels
-
-                # Create background mask: pixels below 30th percentile in this frame
-                background_mask = flux_frame < np.percentile(flux_frame, 30)
-
-                # Optional: make sure the background mask does not overlap the target mask
-                background_mask = background_mask & ~target_mask
-
-                # Extract target flux
-                target_flux = tpf.to_lightcurve(aperture_mask=target_mask)
-
-                # Estimate background flux (median over background pixels for each frame)
-                background_flux = tpf.to_lightcurve(aperture_mask=background_mask).flux
-                background_flux = background_flux.value.astype(np.float64)  # total background
-                #background_flux_per_frame = background_flux.mean(axis=1)
-
-                # Subtract background
-                corrected_flux = target_flux.flux.value.astype(np.float64) - target_mask.sum()*background_flux/background_mask.sum()
-
-                # here we should check empty TPFs
-                if np.nanmedian(corrected_flux)>100 : 
-                    # Create a background-subtracted light curve object
-                    lc_bgsub = lk.LightCurve(time=target_flux.time, flux=corrected_flux)
-
-                    time = target_flux.time.value.astype(np.float64) + 2457000.0
-                    flux = corrected_flux
-                    flux_err = (np.ones(corrected_flux.shape[0])*median_abs_deviation(corrected_flux[~np.isnan(corrected_flux) & ~np.isinf(corrected_flux)])).astype(np.float64)
-                    sky_bkg = background_flux
+                    # Now create the lightcurve 
+                    tpf = lk.targetpixelfile.TessTargetPixelFile(final_path)
 
 
-                    mask = ~(np.isnan(flux) | np.isinf(flux) | np.isnan(flux_err) | np.isinf(flux_err)| np.isnan(sky_bkg) | np.isinf(sky_bkg))
-                    #mask = mask & ~sigma_clip(flux, masked=True, sigma=5).mask
-                    time, flux, flux_err, sky_bkg = time[mask], flux[mask], flux_err[mask], sky_bkg[mask]
+                    while reference_frame<1000:
+                        # Inspect the TPF
+                        tpf.plot(frame=0, title="Single Frame of TPF")
+
+                        # Define a target mask (pixels containing the star)
+                        # You can also interactively create it using `tpf.create_threshold_mask()`
+                        target_mask = tpf.create_threshold_mask(threshold=3)  # 3 sigma above median
+
+                        # Define a background mask (pixels far from the target)
+                        # One way is to invert the target mask, but exclude edges
+                        #background_mask = ~target_mask
+
+                        # Define a background mask based on pixel flux statistics
+                        # Here, we use frame 30 as a reference, similar to self.FLUX[30]
+                        flux_frame = tpf.flux[reference_frame]  # 2D array of pixels
+
+                        # Create background mask: pixels below 30th percentile in this frame
+                        background_mask = flux_frame < np.percentile(flux_frame, 30)
+                        if True not in background_mask : 
+                            print('Background mask contains no pixels at reference image {:}. '.format(reference_frame))
+                            reference_frame += 50
+                        else : break
+                    # Optional: make sure the background mask does not overlap the target mask
+                    background_mask = background_mask & ~target_mask
+
+                    # Extract target flux
+                    target_flux = tpf.to_lightcurve(aperture_mask=target_mask)
+                    nanmask = target_flux.flux>0
+                    target_flux = target_flux[nanmask]
+                    print(target_flux)
+                    print(background_mask)
+                    # Estimate background flux (median over background pixels for each frame)
+                    background_flux = tpf.to_lightcurve(aperture_mask=background_mask)[nanmask]
+                    print(background_flux)
+
+                    background_flux = background_flux.flux.value.astype(np.float64)  # total background
+                    #background_flux_per_frame = background_flux.mean(axis=1)
+                    # Subtract background
+                    print(target_flux.flux.value.astype(np.float64) , target_mask.sum()*background_flux/background_mask.sum())
+                    corrected_flux = target_flux.flux.value.astype(np.float64) - target_mask.sum()*background_flux/background_mask.sum()
+
+                    # here we should check empty TPFs
+                    if np.nanmedian(corrected_flux)>50 : 
+                        # Create a background-subtracted light curve object
+                        lc_bgsub = lk.LightCurve(time=target_flux.time, flux=corrected_flux)
+
+                        time = target_flux.time.value.astype(np.float64) + 2457000.0
+                        flux = corrected_flux
+                        flux_err = (np.ones(corrected_flux.shape[0])*median_abs_deviation(corrected_flux[~np.isnan(corrected_flux) & ~np.isinf(corrected_flux)])).astype(np.float64)
+                        sky_bkg = background_flux
 
 
-                    if time.shape[0]<10 : continue
-                    if (bin_length is not None) and np.median(np.gradient(time))<(0.5*bin_length): 
-                        time, flux, flux_err, c = bin_data(time,flux, bin_length)
-                        mask = c>2
-                        time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
+                        mask = ~(np.isnan(flux) | np.isinf(flux) | np.isnan(flux_err) | np.isinf(flux_err)| np.isnan(sky_bkg) | np.isinf(sky_bkg))
+                        #mask = mask & ~sigma_clip(flux, masked=True, sigma=5).mask
+                        time, flux, flux_err, sky_bkg = time[mask], flux[mask], flux_err[mask], sky_bkg[mask]
 
 
-                    plt.close()
-                        
-                    datasets.append(photometry_time_series(time, flux, flux_err, sky_bkg=sky_bkg if bin_length is None else None))
-                    datasets_labels.append('Sector {:} [FFI custom]'.format(sector))
-                else : 
-                    print('MEDIAN CHECK not met : ' + str(np.nanmedian(corrected_flux)))
+                        if time.shape[0]<10 : continue
+                        if (bin_length is not None) and np.median(np.gradient(time))<(0.5*bin_length): 
+                            time, flux, flux_err, c = bin_data(time,flux, bin_length)
+                            mask = c>2
+                            time, flux, flux_err = time[mask], flux[mask], flux_err[mask]
+
+
+                        plt.close()
+                            
+                        datasets.append(photometry_time_series(time, flux, flux_err, sky_bkg=sky_bkg if bin_length is None else None))
+                        datasets_labels.append('Sector {:} [FFI custom]'.format(sector))
+                    else : 
+                        print('MEDIAN CHECK not met : ' + str(np.nanmedian(corrected_flux)))
         if not downloaded:
             data_files.append('')
             data_origin.append('Missing')
@@ -375,3 +407,29 @@ def download_tess_data(tic_id, max_sector=None, use_ffi=True, download_dir=None,
         print("This directory will be deleted when the program exits.")
 
     return t, np.array(datasets), np.array(datasets_labels), base_dir
+
+
+
+def get_tic8(tic_id):
+    from astroquery.mast import Catalogs
+    tic8 = Catalogs.query_object('TIC{:}'.format(tic_id), radius=.02, catalog="TIC")
+    if len(tic8)==0 : raise ValueError('No Object found :( ')
+    return tic8[0]
+
+def get_gaia_dr2(tic_id):
+    gaia_dr2 = Catalogs.query_object(f"TIC {tic_id}", catalog="Gaia")[:1]
+    if len(gaia_dr2)==0 : raise ValueError('No Object found :( ')
+    return gaia_dr2[0]
+
+def get_gaia_dr3(ra,dec):
+    from astroquery.gaia import Gaia
+    from astropy import units as u
+    from astropy.coordinates import SkyCoord
+
+    Gaia.MAIN_GAIA_TABLE = "gaiadr3.gaia_source"  # Reselect Data Release 3, default
+
+    coord = SkyCoord(ra=ra, dec=dec, unit=(u.degree, u.degree), frame='icrs')
+    width = u.Quantity(0.1, u.deg)
+    height = u.Quantity(0.1, u.deg)
+    gaia = Gaia.query_object_async(coordinate=coord, width=width, height=height)[:1]
+    return gaia

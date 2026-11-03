@@ -1,6 +1,7 @@
 from genericpath import isfile
 from astropy.table import Table, unique 
 import os
+from urllib.request import urlretrieve
 from astropy.coordinates import SkyCoord
 from astropy import units as u
 from astroquery.simbad import Simbad
@@ -9,10 +10,12 @@ from astroquery.simbad import Simbad
 __all__=['download_NASA_exoplanet_archive', 'load_NASA_exoplanet_archive', 'download_tois_ctois', 'load_toi_table', 'load_ctoi_table', 'load_tic8_info_for_target', 'load_gaia_table', 'query_simbad']
 
 def download_NASA_exoplanet_archive():
-    cache_dir = os.path.expanduser("~") + '/.cache/bruce'
-    os.system('mkdir -p {:}'.format(cache_dir))
-    cmd = 'wget "https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=select+*+from+ps&format=csv" -O "{:}/confirmed_planets.csv"'.format(cache_dir)
-    os.system(cmd)
+    cache_dir = os.path.expanduser("~/.cache/bruce")
+    os.makedirs(cache_dir, exist_ok=True)
+    urlretrieve(
+        "https://exoplanetarchive.ipac.caltech.edu/TAP/sync?query=select+*+from+ps&format=csv",
+        os.path.join(cache_dir, "confirmed_planets.csv"),
+    )
 
 
 def query_simbad(id):
@@ -21,7 +24,7 @@ def query_simbad(id):
 
 
 def load_NASA_exoplanet_archive(unique_entries=False):
-    path = os.path.expanduser("~") + '/.cache/bruce2/confirmed_planets.csv'
+    path = os.path.expanduser("~") + '/.cache/bruce/confirmed_planets.csv'
     if not os.path.isfile(path) : download_NASA_exoplanet_archive()
     t = Table.read(path, format='csv')
     if unique_entries : t = unique(t, keys= 'pl_name', keep='last')

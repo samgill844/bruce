@@ -1,0 +1,1 @@
+from .empirical_relations import mass_radius, radius_to_mass

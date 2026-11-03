@@ -1,0 +1,33 @@
+{
+  "seed": 42,
+  "names": [
+    "t_zero",
+    "k",
+    "radius_1"
+  ],
+  "injected": [
+    0.0,
+    0.1,
+    0.1
+  ],
+  "fitted": [
+    -5.745040596994899e-05,
+    0.10044434930425714,
+    0.09966371934953
+  ],
+  "fixed": {
+    "period": 3.0,
+    "incl": 1.5407918249714196,
+    "e": 0.0,
+    "w": 1.5707963267948966,
+    "c": 0.7,
+    "alpha": 0.4,
+    "cadence": 0.001388888888888889,
+    "noversample": 11,
+    "accurate_tp": 0
+  },
+  "success": true,
+  "evaluations": 8,
+  "rms_ppm": 438.439149608262,
+  "note": "Illustrative fit with generating model; not an independent accuracy test."
+}

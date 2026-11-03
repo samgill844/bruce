@@ -61,7 +61,9 @@ def lc(t = np.linspace(-0.2,0.2,100),flux=None, flux_err=None,
             0: no limb darkening
             1: linear limb darkening (from c limb darkening coefficient)
             2: power-2 law [c and alpha]
-        accurate_tp: use Newton-Raphson method for Eccentric anomaly [default 1]
+        accurate_tp: eclipse-to-periastron conversion [default 1].
+            1 minimises projected separation; 0 uses the edge-on
+            conjunction approximation. Both modes solve Kepler's equation.
         jitter: Jitter Value added in quadrature to flux_err.
         
     Returns:

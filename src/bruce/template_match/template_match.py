@@ -139,3 +139,78 @@ def autoperiod( x,
         return minimum_frequency, minimum_frequency + df * (Nf - 1)
     else:
         return 1/(minimum_frequency + df * np.arange(Nf))
+
+
+
+
+def template_match_snr(time, flux, flux_err, normalisation_model, period = 1.,
+        radius_1=0.2, k = 0.2, incl=np.pi/2,
+        e=0., w = np.pi/2.,
+        c = 0.7, alpha = 0.4,
+        cadence=0, noversample=10,
+        light_3=0.,
+        ld_law = -2,
+        accurate_tp=1,
+		jitter=0., offset=0,
+		time_step=None, time_trial=None,
+        whiten=True, rho2=None, **kwargs): 
+    """Whitened matched-filter S/N per trial epoch; the null is N(0, 1). 
+ 
+    Returns ``(time_trial, z, S, rho2)`` where ``S`` is the raw 2dlnL from 
+    ``template_match_lightcurve`` and ``z = (S + rho2) / (2 sqrt(rho2))``. 
+ 
+    ``whiten=True`` divides z by its robust (MAD) scatter: an estimated 
+    normalisation model (e.g. a median filter) absorbs part of the noise and 
+    leaves the raw z slightly narrower than N(0,1); transits are sparse so 
+    the MAD is insensitive to them.  Pass a precomputed ``rho2`` (from 
+    ``template_rho2``) to skip the self-match pass. 
+    """ 
+    if isinstance(radius_1, np.ndarray): 
+        raise ValueError("template_match_snr supports the single-template " 
+                         "path only (scalar radius_1, k, incl)") 
+    # time_trial, S = template_match_lightcurve( 
+    #     time, flux, flux_err, normalisation_model, **kwargs) 
+    time_trial, S = template_match_lightcurve(time, flux, flux_err, normalisation_model, 
+        period = period,
+        radius_1=radius_1, k = k, incl=incl,
+        e=e, w = w,
+        c = c, alpha = alpha,
+        cadence=cadence, noversample=noversample,
+        light_3=light_3,
+        ld_law = ld_law,
+        accurate_tp=accurate_tp,
+		jitter=jitter, offset=offset,
+		time_step=time_step, time_trial=time_trial)
+
+
+
+
+    
+    if rho2 is None: 
+        # _, rho2 = template_rho2(time, flux_err, normalisation_model, 
+        #                         time_trial=time_trial, **kwargs) 
+        _, s_self = template_match_lightcurve( 
+                time, normalisation_model, flux_err, normalisation_model, 
+                        period = period,
+                        radius_1=radius_1, k = k, incl=incl,
+                        e=e, w = w,
+                        c = c, alpha = alpha,
+                        cadence=cadence, noversample=noversample,
+                        light_3=light_3,
+                        ld_law = ld_law,
+                        accurate_tp=accurate_tp,
+                        jitter=jitter, offset=offset,
+                        time_step=time_step, time_trial=time_trial) 
+        rho2 = -np.asarray(s_self)
+
+        
+    S = np.asarray(S, dtype=float) 
+    rho2 = np.asarray(rho2, dtype=float) 
+    safe = np.maximum(rho2, 1e-12) 
+    z = np.where(rho2 > 1e-9, (S + rho2) / (2.0 * np.sqrt(safe)), 0.0) 
+    if whiten: 
+        finite = z[np.isfinite(z)] 
+        scale = 1.4826 * np.median(np.abs(finite - np.median(finite))) 
+        if np.isfinite(scale) and scale > 0.0: 
+            z = z / scale 
+    return time_trial, z, S, rho2

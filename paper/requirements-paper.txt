@@ -1,0 +1,7 @@
+# Install BRUCE's analysis dependencies separately; wkhtmltopdf is an external tool.
+numpy
+scipy
+matplotlib
+PyYAML
+bibtexparser>=1.4,<2
+Markdown>=3

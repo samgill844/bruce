@@ -17,7 +17,10 @@ def chi_fixed_period(theta, data, theta_names,
     
     # Get the model
     model = bruce.binarystar.lc(data.time,t_zero=get_theta('t_zero',theta,theta_names), period=fit_period, radius_1=get_theta('radius_1',theta,theta_names), k=get_theta('k',theta,theta_names), incl=incl, ld_law=-2)
-    
+
+    t_ = np.linspace(np.min(data.time), np.max(data.time),1000)
+    model_ = bruce.binarystar.lc(t_,t_zero=get_theta('t_zero',theta,theta_names), period=fit_period, radius_1=get_theta('radius_1',theta,theta_names), k=get_theta('k',theta,theta_names), incl=incl, ld_law=-2)
+
     # Get the residuals
     residuals = data.flux - model
     
@@ -27,16 +30,20 @@ def chi_fixed_period(theta, data, theta_names,
         w = bruce.data.convolve_1d(data.time, w, bin_size=convolve_bin_size)
     else : 
         w = data.w.copy()
-    
+    w_ = np.interp(t_, data.time, w)
     if plot:
         fig, ax = plt.subplots(1,2, gridspec_kw={'hspace' : 0, 'wspace' : 0})
         ax[0].errorbar(data.time-get_theta('t_zero',theta,theta_names), data.flux, yerr=data.flux_err, fmt='k.', alpha = 0.1)
-        ax[0].plot(data.time-get_theta('t_zero',theta,theta_names), model * (w), c='orange')
-        ax[0].plot(data.time-get_theta('t_zero',theta,theta_names), (w), c='orange', ls='--')
+        #ax[0].plot(data.time-get_theta('t_zero',theta,theta_names), model * (w), c='orange')
+        ax[0].plot(t_-get_theta('t_zero',theta,theta_names), model_ * (w_), c='orange')
+        #ax[0].plot(data.time-get_theta('t_zero',theta,theta_names), (w), c='orange', ls='--')
+        ax[0].plot(t_-get_theta('t_zero',theta,theta_names), w_, c='orange', ls='--')
+
         #ax[0].set(xlabel='Time from Transit [d]', ylabel='Flux')
         
         ax[1].errorbar(data.time-get_theta('t_zero',theta,theta_names), data.flux/(w), yerr=data.flux_err/(w), fmt='k.', alpha = 0.1)
-        ax[1].plot(data.time-get_theta('t_zero',theta,theta_names), model, c='orange')
+        # ax[1].plot(data.time-get_theta('t_zero',theta,theta_names), model, c='orange')
+        ax[1].plot(t_-get_theta('t_zero',theta,theta_names), model_, c='orange')
         ax[1].set(yticks=[])
 
         try:
@@ -48,7 +55,7 @@ def chi_fixed_period(theta, data, theta_names,
         #ax[1].set_xlim(get_theta('t_zero',theta,theta_names)-width, get_theta('t_zero',theta,theta_names)+width)
 
         return_data = (data.time-get_theta('t_zero',theta,theta_names), data.flux/(w), data.flux_err/(w),
-                       data.time-get_theta('t_zero',theta,theta_names), model)
+                       data.time-get_theta('t_zero',theta,theta_names), model, t_, model_)
 
         return fig, ax, return_data
     

@@ -1,0 +1,14 @@
+{
+  "method": "Nelder-Mead",
+  "objective": "bruce.binarystar.lc with flux and flux_err",
+  "offset": 0,
+  "fitted": [
+    -5.745943584985989e-05,
+    0.1004443566066092,
+    0.099663699316329
+  ],
+  "negative_log_likelihood": 83.05493136141992,
+  "success": true,
+  "evaluations": 226,
+  "note": "Synthetic same-model demonstration; fixed uncertainty and zero jitter."
+}

@@ -109,14 +109,30 @@ def main():
             # First visible transit time defines night
             # ----------------------------------------
             t_first_visible = transit_times[visible_mask][0]
+            from astropy.coordinates import get_sun
+            sun = get_sun(t_first_visible)
 
             sunset  = observer.sun_set_time(t_first_visible, which="previous")
             sunrise = observer.sun_rise_time(t_first_visible, which="next")
+            evening_twilight = observer.target_set_time(
+                sunset,
+                sun,
+                which="next",
+                horizon=sun_max_alt*u.degree,
+                n_grid_points=150
+            )
 
+            morning_twilight = observer.target_rise_time(
+                sunrise,
+                sun,
+                which="previous",
+                horizon=sun_max_alt*u.degree,
+                n_grid_points=150
+            )
             # Night grid for visibility calculations
             night_grid = sunset + np.arange(
-                0,
-                (sunrise - sunset).to(u.minute).value,
+                -0.2,
+                (sunrise - sunset+0.2).to(u.minute).value,
                 resolution.to(u.minute).value,
             ) * u.minute
 
@@ -125,14 +141,18 @@ def main():
             sun_alt_n    = get_sun(night_grid).transform_to(altaz_n).alt.deg
 
             night_visible_mask = (target_alt_n >= target_min_alt) & (sun_alt_n <= sun_max_alt)
-
             visible_for = (night_visible_mask.sum() * resolution).to(u.hour).value
+
 
             # ----------------------------------------
             # Visible transit duration
             # ----------------------------------------
-            t_vis_start = transit_times[visible_mask][0].jd
-            t_vis_end   = transit_times[visible_mask][-1].jd
+            t_vis_start = np.min(transit_times[visible_mask].jd)
+            t_vis_end   = np.max(transit_times[visible_mask].jd)
+            target_rise = np.min(night_grid[night_visible_mask].jd)
+            target_set   = np.max(night_grid[night_visible_mask].jd)
+
+            
 
             in_transit_for = max(0.0, (t_vis_end - t_vis_start) * 24.0)  # hours
             frac_in_transit = in_transit_for / (args.width * 24.0)
@@ -151,8 +171,12 @@ def main():
             rows.append([
                 tic_id,
                 observatory,
-                sunset,
-                sunrise,
+                sunset.jd,
+                sunrise.jd,
+                evening_twilight.jd,
+                morning_twilight.jd,
+                target_rise,
+                target_set,
                 night_label,
                 cycle,
                 visible_for,
@@ -162,27 +186,62 @@ def main():
                 t_center,
                 t_end,
                 moon_sep,
+                sun_max_alt,
+                target_min_alt,
+                moon_min_seperation
             ])
 
         # ----------------------------------------
         # Output Table
         # ----------------------------------------
+        if len(rows)==0 : 
+            return         Table(
+                                    names=[
+                                        "tic_id",
+                                        "observatory",
+                                        "sunset",
+                                        "sunrise",
+                                        "evening_twilight",
+                                        "morning_twilight",
+                                        "target_rise",
+                                        "target_set",
+                                        "night",
+                                        "cycle_number",
+                                        "visible_for",
+                                        "in_transit_for",
+                                        "frac_in_transit",
+                                        "transit_start_jd",
+                                        "transit_center_jd",
+                                        "transit_end_jd",
+                                        "moon_mean_sep",
+                                        "sun_max_alt",
+                                        "target_min_alt",
+                                        "moon_min_seperation"
+                                    ]
+                                ) 
         t = Table(
             rows=rows,
             names=[
-                "tic_id",
-                "observatory",
-                "sunset",
-                "sunrise",
-                "night",
-                "cycle_number",
-                "visible_for",
-                "in_transit_for",
-                "frac_in_transit",
-                "transit_start_jd",
-                "transit_center_jd",
-                "transit_end_jd",
-                "moon_mean_sep",
+                    "tic_id",
+                    "observatory",
+                    "sunset",
+                    "sunrise",
+                    "evening_twilight",
+                    "morning_twilight",
+                    "target_rise",
+                    "target_set",
+                    "night",
+                    "cycle_number",
+                    "visible_for",
+                    "in_transit_for",
+                    "frac_in_transit",
+                    "transit_start_jd",
+                    "transit_center_jd",
+                    "transit_end_jd",
+                    "moon_mean_sep",
+                    "sun_max_alt",
+                    "target_min_alt",
+                    "moon_min_sep"
             ]
         )
 
@@ -254,6 +313,9 @@ def main():
         from astropy.coordinates import SkyCoord, EarthLocation, AltAz
         from astroplan import Observer
         from astroquery.mast import Catalogs
+
+        plt.rcParams['font.family'] = 'monospace'
+        plt.rcParams['font.monospace'] = ['DejaVu Sans Mono']
 
         # ------------------------------------
         # Observer
@@ -340,15 +402,20 @@ def main():
             & (sun_alt_tr <= sun_max_alt)
         )
 
-        if visible_mask.any():
-            t_vis_start = transit_times[visible_mask][0]
-            t_vis_end   = transit_times[visible_mask][-1]
+        t_vis_start = Time(row["target_rise"], format='jd')
+        t_vis_end = Time(row["target_set"],format='jd')
+        t_vis_start_str = time_to_utc_str(t_vis_start)
+        t_vis_end_str   = time_to_utc_str(t_vis_end)
 
-            t_vis_start_str = time_to_utc_str(t_vis_start)
-            t_vis_end_str   = time_to_utc_str(t_vis_end)
-        else:
-            t_vis_start_str = "—"
-            t_vis_end_str   = "—"
+        # if visible_mask.any():
+        #     t_vis_start = transit_times[visible_mask][0]
+        #     t_vis_end   = transit_times[visible_mask][-1]
+
+        #     t_vis_start_str = time_to_utc_str(t_vis_start)
+        #     t_vis_end_str   = time_to_utc_str(t_vis_end)
+        # else:
+        #     t_vis_start_str = "—"
+        #     t_vis_end_str   = "—"
 
 
         # ------------------------------------
@@ -457,12 +524,15 @@ def main():
         # ------------------------------------
         # Title block (left-aligned)
         # ------------------------------------
-        sunset_str  = time_to_utc_str(sunset)
-        sunrise_str = time_to_utc_str(sunrise)
+        sunset_str  = time_to_utc_str(Time(row['sunset'], format='jd'))
+        sunrise_str = time_to_utc_str(Time(row['sunrise'], format='jd'))
+        evening_twilight_str  = time_to_utc_str(Time(row['evening_twilight'], format='jd'))
+        morning_twilight_str  = time_to_utc_str(Time(row['morning_twilight'], format='jd'))
 
-        t_start_str = jd_to_utc_str(row["transit_start_jd"])
-        t_mid_str   = jd_to_utc_str(row["transit_center_jd"])
-        t_end_str   = jd_to_utc_str(row["transit_end_jd"])
+
+        t_start_str = jd_to_utc_str(Time(row["transit_start_jd"], format='jd'))
+        t_mid_str   = jd_to_utc_str(Time(row["transit_center_jd"], format='jd'))
+        t_end_str   = jd_to_utc_str(Time(row["transit_end_jd"], format='jd'))
 
         title_lines = [
             (
@@ -472,18 +542,24 @@ def main():
             ),
             (
                 f"Sunset {sunset_str} – Sunrise {sunrise_str} UTC  |  "
-                f"Moon sep: {row['moon_mean_sep']:.1f}°"
+                f"Max Sun Alt {row['sun_max_alt']:.1f}° -> Twilights {evening_twilight_str} - {morning_twilight_str} UTC"
             ),
             (
                 f"Cycle {row['cycle_number']}  |  "
-                f"Visible: {row['visible_for']*24:.1f} h  |  "
-                f"In-transit: {row['in_transit_for']*24:.1f} h  |  "
-                f"f = {row['frac_in_transit']:.2f}"
+                f"Visible for {row['visible_for']:.1f} h  |  "
+                f"In-transit for {row['in_transit_for']:.1f} h  |  "
+                f"{row['frac_in_transit']:.2f}% of the transit"
             ),
             (
-                f"Transit: {t_start_str} – {t_end_str} "
-                f"(mid {t_mid_str}) UTC | "
-                f"Visible: {t_vis_start_str} – {t_vis_end_str} UTC"
+                f"Full transit time:        {t_start_str} – {t_end_str} UTC "
+                f"(mid {t_mid_str} UTC) | Moon sep: {row['moon_mean_sep']:.1f}°"
+            ),
+            (
+                f"Visible time on night:    {t_vis_start_str} – {t_vis_end_str} UTC    (twilight, target alt, sun alt)"
+            ),
+            (
+                f"Transit Visible on night: {time_to_utc_str(t_vis_start) if t_vis_start.jd >= row['transit_start_jd'] else time_to_utc_str(Time(row['transit_start_jd'], format='jd'))} - "
+                f"{time_to_utc_str(Time(row['transit_end_jd'], format='jd')) if row['transit_end_jd'] <= t_vis_end.jd else time_to_utc_str(t_vis_end)} UTC    (twilight, target alt, sun alt, transit)"
             ),
         ]
 

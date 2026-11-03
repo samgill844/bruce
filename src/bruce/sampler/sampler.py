@@ -1,32 +1,5 @@
-import bruce_c
 import  emcee, corner, multiprocess, numpy as np
 from datetime import datetime
-###############################################################
-#                  bruce_c wrappers                           #
-###############################################################
-# def loglike(y, yerr, model, jitter=0., offset=0):
-#     '''
-#     Calculate the log-likliehood of the data given the model, errors, jitter, and offset.
-#     Assumes y,yerr, and model are arrays of same shape. 
-    
-#     Parameters:
-#         y: array of data points
-#         yerr: array of errors
-#         model: array of model values
-#         jitter: Jitter Value added in quadrature to yerr. 
-#         offset: Subtract an arbritrary offset when set to 1.
-
-#     Returns:
-#         log-likelihood (double)
-#     '''
-#     return bruce_c.loglike(y, yerr, model, float(jitter), int(offset))
-
-
-###############################################################
-#                  Other functions                            #
-###############################################################
-
-
 def prior_uniform(val, low, high) : 
     if (val < low) or (val > high) : return -np.inf 
     else : return 0.
@@ -52,15 +25,10 @@ def loglike_(y,yerr, model, jitter=0., offset = True):
 
 
 def loglike(y,yerr, model, jitter=0., offset = True):
-    sum = 0.
-    for i in range(y.shape[0]):
-        ll = loglike_(y[i],yerr[i], model[i], jitter=jitter, offset = offset)
-        if (not np.isnan(ll)) and (not np.isinf(ll)) : sum += ll
-        #wt = 1. / (yerr[i]**2 + jitter**2)
-        #if offset : subtracted = np.log(wt)
-        #else : subtracted = 0.
-        #sum -= 0.5*((y[i] - model[i])**2*wt - subtracted)
-    return sum
+    """Sum finite pointwise likelihoods, preserving the historical mask policy."""
+    values = loglike_(np.asarray(y), np.asarray(yerr), np.asarray(model),
+                      jitter=jitter, offset=offset)
+    return np.sum(values[np.isfinite(values)])
 
 
 

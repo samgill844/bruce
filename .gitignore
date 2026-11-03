@@ -1,4 +1,3 @@
-tests/
 build/
 dist/ 
 # Ignore everything under examples/duotransits
@@ -14,3 +13,28 @@ examples/solved_systems/ttvs/*
 !examples/monotransits/duos.csv
 !examples/solved_systems/solved_systems.csv
 
+
+# Local caches and build products
+.DS_Store
+__pycache__/
+*.py[cod]
+*.so
+*.dylib
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# Archive downloads and generated analysis products
+mastDownload/
+*.fits
+*.fits.gz
+*.fit
+*.fts
+*.h5
+*.hdf5
+/orbit.gif
+/src/bruce_c/a.out
+/src/bruce_c/simd/avx
+/src/bruce_c/simd/avx_loglike
+/src/bruce_c/simd/simd_example
+/src/bruce_c/simd/timing_aligned

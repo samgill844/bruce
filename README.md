@@ -1,116 +1,186 @@
 # BRUCE
-------------------
-<table border="0">
- <tr>
-    <td>Lightning-fast binary star model and data reduction package. This package uses the Numpy C API and OpenMP to create an incredibly fast and optimised suite of tools for the reduction and analysis of exoplanets and stellar binaries.</td>
-    <td> <img src="images/bruce.png" width="400" alt="Bruce the dog"/></a> </td>
- </tr>
-</table>
 
-## Binary star model
----------
-The binary star model described here is heavily influenced by [ellc](https://github.com/pmaxted) [(Maxted 2016)](https://www.aanda.org/articles/aa/full_html/2016/07/aa28579-16/aa28579-16.html) and credit should be given to this work for the functions used in this package related to solving for the mean, eccentric, and true anomaly, along with functions for the scaled orbital separation and radial velocities (this list is not exhaustive). The transit model used here is called qpower2 [Maxted and Gill 2016](https://ui.adsabs.harvard.edu/abs/2019A%26A...622A..33M/abstract) and uses the power-2 limb-darkening law. People are encouraged not to fit the limb-darkening coefficients directly but rather to use the decorelated parameters h1 and h2 described in [Maxted 2018](https://ui.adsabs.harvard.edu/abs/2018A%26A...616A..39M/abstract).
+BRUCE is a Python and C toolkit for modelling exoplanet transits and eclipsing binaries, analysing TESS and ground-based photometry, resolving ambiguous orbital periods, and producing astronomical plots and animations. NumPy C extensions and optional OpenMP parallelism support the numerical calculations.
 
-Most functions in this package depend on a numpy array as an input and are written to expect double precision data (np.float64). Care has been taken to recast data where appropriate in the C code to avoid errors where the data is not of type np.float64, but this comes at a cost to performance. For best results, use np.float64 throughout (data, input models, etc.). The C source code uses OpenMP to multiprocess calculations where appropriate. To control this, set the OMP_NUM_THREADS environmental variable to the number of processors you wish to use. If fitting data using multiprocessing, you may encounter forking issues, and so I would suggest setting this to 1 prior to fitting.
+<img src="images/bruce.png" width="240" alt="Bruce the dog">
+
+## Installation
+
+Use Python 3.9 or later, a C99 compiler and NumPy headers. From a source checkout:
 
 ```bash
-export OMP_NUM_THREADS=12
+python -m pip install numpy setuptools wheel
+python -m pip install -e '.[analysis]'
+# Add interactive Qt tools if required:
+python -m pip install -e '.[analysis,gui]'
 ```
-<img src="images/binary_model_test.png" width="80%" alt="Bruce the dog"/>
 
-Only a few functions exposed to use, but should be everything needed to model a binary star/exoplanet system. Lets star with generating a lightcurve model which is wrapped into one call.
-```python
-bruce.binarystar.lc(t = np.linspace(-0.2,0.2,100),flux=None, flux_err=None,
-        t_zero=0., period = 1.,
-        radius_1=0.2, k = 0.2, incl=np.pi/2,
-        e=0., w = np.pi/2.,
-        c = 0.7, alpha = 0.4,
-        cadence=0, noversample=10,
-        light_3=0.,
-        ld_law = 2,
-        accurate_tp=0,
-        jitter=0., offset=0)
+The base installation supplies NumPy, SciPy and Astropy. The `analysis` extra adds fitting, plotting, archive and observing-planning dependencies; `gui` adds PyQt5 and pyqtgraph. Archive queries require network access. Some command-line workflows also use external programmes or environment-specific resources; see their `--help` and source before running them on a new installation.
+
+On macOS, OpenMP is enabled when libomp is found under `/opt/homebrew/opt/libomp` or `/usr/local/opt/libomp`. Set `BRUCE_LIBOMP_PREFIX` for another location. GCC builds enable OpenMP by default. To build without OpenMP:
+
+```bash
+BRUCE_OPENMP=0 python -m pip install -e '.[analysis]'
 ```
-If flux and flux_err are provided, the log-likliehood is returned instead of the lightcurve model. The parameters jitter allows the user to add additional uncertainty in quadrature to flux_err while offset removes an arbritrary large constant if set to 1.  This function exploits OpenMP to calcualate/evaluate the model faster. It's much faster to call this function with t, flux, and flux_err to get the log-likliehood than getting the model and calculating it seperately. Note also that you can specify the cadence (in days) which will cadence smear the model, if required. Next, we can look at radial velocities:
-```python
-bruce.binarystar.rv1(t = np.linspace(0,1,100),rv=None, rv_err=None,
-        t_zero=  0., period = 1.,
-        K1 = 1., e = 0.,  w = np.pi / 2.,
-        V0 = 0., incl = np.pi / 2.,
-        accurate_tp=0,
-        jitter=0., offset=0)
+
+Use `BRUCE_OPENMP=1` to require OpenMP. Set its thread count before starting Python, particularly when combining model evaluation with multiprocessing:
+
+```bash
+export OMP_NUM_THREADS=1
 ```
-This provides the spectroscopic reflex motion of the primary star, normalised in units of the semi-amplitude, K1. Like the lc call, if data is provided through rv and rv_err, a log-likliehood value is returned. If double-lined binaries are your game, the spectroscopic reflex motion of the secondary can easily calculated as the true anomaly for the primary star is that of the secondary plus pi. We provide utility to do this:
-```python
-rv2(t = np.linspace(0,1,100),rv1=None, rv1_err=None,rv2=None, rv2_err=None,
-        t_zero=  0., period = 1.,
-        K1 = 1., K2=1.,
-        e = 0.,  w = np.pi / 2.,
-        V0 = 0., incl = np.pi / 2.,
-        accurate_tp=0,
-        jitter=0., offset=0)
-``` 
-When rv1 and rv2 is not given, the RV models are returned for the primary and secondary. When data is given, the log-likliehood is returned like lc and rv1. 
 
-------------------
-## Template Matching
+## What is available?
 
-One of the main uses for bruce is to search for additional transits in additional photometric data where you know the transit shape from an original set (e.g. TESS signle transit candidate). We have developed an algorithm to do just this (Gill+2025 in prep) and can be easily achieved like this
+| Module | Capabilities |
+| --- | --- |
+| `bruce.binarystar` | Transit/eclipse light curves (`lc`), primary and double-lined radial velocities (`rv1`, `rv2`), circular transit durations, and stellar densities. |
+| `bruce.binarystar.ttv` | Chopping TTV models, companion-period scans, resonance searches, synodic-period conversions, branch diagnostics, and TTV plots. |
+| `bruce.data` | Fixed and adaptive binning, time-based median/convolution filters, night segmentation, flux/magnitude conversions, phase folding, timestamp proximity checks, and detrending. |
+| `bruce.data.nasa_archive` | NASA Exoplanet Archive caching, SIMBAD queries, TOI/CTOI tables, TIC information and Gaia queries. Some helpers retain installation-specific paths. |
+| `bruce.data.ngtsfit` | `NGTSFIT_DATA`: load NGTS FITS products and display action summaries with Matplotlib or pyqtgraph. |
+| `bruce.template_match` | Transit-template searches, matched-filter signal-to-noise estimates, false-alarm thresholds and phase-dispersion period searches. |
+| `bruce.sampler` | Priors, Gaussian likelihoods, orbital/limb-darkening transformations, emcee sampling, posterior reports, corner plots, BIC and LaTeX formatting. |
+| `bruce.ambiguous_period` | TESS retrieval, photometric time-series management, individual-event fitting, period-alias generation, probability calculations and observing plans. |
+| `bruce.empirical_relations` | Planet mass–radius estimates and the implemented inverse relation. |
+| `bruce.visual` | Orbit animation with optional GIF export. |
+
+See the [function and class catalogue](docs/API.md) for all public Python definitions, including methods and functions accessed through submodules. Existing spellings such as `phase_disperison`, `intilise_and_run_sampler` and `calcualte_aliases` remain part of the API.
+
+## Model a transit or radial velocities
+
 ```python
-time_trial, DeltaL = bruce.template_match.template_match_lightcurve(t, f, fe, w, period = period,
-        radius_1=0.03, k = 0.05, incl=np.pi/2,
-        e=0., w = np.pi/2.,
-        c = 0.7, alpha = 0.4,
-        cadence=5, noversample=10,
-        light_3=0.,
-        ld_law = -2,
-        accurate_tp=1,
-		jitter=0., offset=0,
-		time_step=None, time_trial=None)
+import numpy as np
+import bruce
+
+# Times and periods are in days; angles are in radians.
+time = np.linspace(-0.15, 0.15, 1000, dtype=np.float64)
+flux_model = bruce.binarystar.lc(
+    time, t_zero=0.0, period=3.0, radius_1=0.1, k=0.1,
+    incl=np.pi / 2, e=0.0, w=np.pi / 2,
+    c=0.7, alpha=0.4, cadence=2 / 1440, noversample=10,
+)
+rv_model = bruce.binarystar.rv1(
+    time, period=3.0, K1=10.0, V0=0.0,
+)
+rv_primary, rv_secondary = bruce.binarystar.rv2(
+    time, period=3.0, K1=10.0, K2=20.0,
+)
 ```
-By simple passing the data, along with parameters used to fit a single transit (period, R1/a, R2/R1, and incl) you can search each possible epoch for signs of a transit. In return, you get time_trial (the epochs we try) and DeltaL, the delta log-likliehood of a match at this position. Epochs where DeltaL > 0 mean the transit model is favoured over a null model. You can then look for peaks in DeltaL which are significant (which you can define) like this.
+
+`radius_1` is the stellar radius divided by the orbital semi-major axis; `k` is the companion-to-star radius ratio. `cadence` is in days. RV amplitudes and systemic velocity must share a unit. `lc`, `rv1` and `rv2` return models unless observations and their uncertainties are supplied, in which case they return the extension's likelihood statistic. **The existing C wrappers return negative log likelihood, whereas `bruce.sampler.loglike` returns log likelihood.** This convention is retained for compatibility: check the sign required by your optimiser or posterior. `offset=1` includes the variance-dependent logarithmic term; additive Gaussian constants are omitted.
+
+`accurate_tp=1` finds the eclipse epoch by minimising projected separation;
+`accurate_tp=0` uses the edge-on conjunction approximation
+(`nu_zero = pi/2 - w`). Both modes honour `t_zero` and solve the elliptic
+Kepler equation. The C anomaly routines return angles in `[0, 2π)` and
+return `NaN` for invalid eccentricities or non-positive periods. The former
+`accurate_tp=0` behaviour ignored `t_zero`; models computed with that setting
+can therefore change after this correction.
+
+`ld_law=2` selects the power-2 law. `ld_law=-2` models a single transit around the trial epoch. Use the sampler transforms `ca_to_h1h2` and `h1h2_to_ca` when fitting decorrelated limb-darkening parameters. `transit_width` assumes a circular orbit; `stellar_density` returns solar units.
+
+<img src="images/binary_model_test.png" width="80%" alt="Binary light-curve and radial-velocity models">
+
+## Process a light curve
 
 ```python
-# Get the FAP heights for 1%, 0.1%, and 0.001% 
-probabilities, heights = bruce.template_match.get_delta_loglike_height_from_fap(p_value=[0.01,0.001,0.0001], df=3) 
+# time and flux must be equally sized, sorted one-dimensional arrays.
+binned_time, binned_flux, binned_error, counts = bruce.data.bin_data(
+    time, flux_model, bin_size=10 / 1440,
+)
+trend = bruce.data.median_filter(time, flux_model, bin_size=0.2)
+trend = bruce.data.convolve_1d(time, trend, bin_size=0.1)
+phase = bruce.data.phase_times(time, epoch=0.0, period=3.0)
+nights = bruce.data.find_nights_from_data(time, dx_lim=0.5)
+```
 
+Fixed binning returns **four** arrays, including counts. Adaptive binning returns bin start times, end times, fluxes, errors and counts. `flatten_data_with_function` returns a trend evaluated at the input times using a polynomial, smoothing spline or Savitzky–Golay filter; divide the observations by the trend to normalise them. Choose the filter scale with the transit duration in mind.
+
+<img src="images/binning_test.png" width="80%" alt="Photometric binning example">
+
+## Search for additional transits
+
+```python
+# Replace these synthetic arrays with observed photometry.
+flux = flux_model.copy()
+flux_err = np.full(time.size, 0.001)
+normalisation = np.ones_like(flux)
+trial_epochs, delta_statistic = bruce.template_match.template_match_lightcurve(
+    time, flux, flux_err, normalisation,
+    period=3.0, radius_1=0.1, k=0.1, incl=np.pi / 2,
+)
 from scipy.signal import find_peaks
-peaks, meta = find_peaks(DeltaL, height=heights[2])
+probabilities, thresholds = (
+    bruce.template_match.get_delta_loglike_height_from_fap(
+        p_value=[0.01, 0.001, 0.0001], df=3,
+    )
+)
+peaks, properties = find_peaks(delta_statistic, height=thresholds[-1])
 ```
-Once you have found viable events (time_trial[peaks[0]], time_trial[peaks[1]], ... and so on), you can use a modified version of the phase dispersion algorithm to estimate the true orbital period:
+
+The C search accumulates twice the log-likelihood improvement over the supplied normalisation model. Positive values favour the transit template. The chi-square thresholds depend on the assumed degrees of freedom; they do not establish a search-wide false-alarm probability automatically. `template_match_snr` returns `(trial_epochs, z, statistic, rho2)` for a single template.
+
+For a period search, use the current six-data-array interface (the historical spelling is preserved):
+
 ```python
-periods = np.linspace(2,100,100000)
-dispersion = bruce.template_match.phase_disperison(time_trial, peaks,  periods)
-period_best = periods[np.argmin(dispersion)]
+periods, dispersion, unused_statistic = bruce.template_match.phase_disperison(
+    trial_epochs, peaks, time, flux, flux_err,
+    periods=np.linspace(1, 30, 10000),
+)
 ```
 
-The normalisation model, w, can be whatever you want, but we provide a median filter and a convolution filter to use if you so wish. 
+The second statistic array is currently zero-filled because its C calculation is disabled; use the dispersion output for this search.
+
+<img src="images/template_match.png" width="80%" alt="Transit template-matching example">
+
+## TESS, fitting and period aliases
+
+`bruce.ambiguous_period.download_tess_data` retrieves TESS photometry; its options select sectors, SPOC/FFI products, download location and binning. Inspect its signature before a large download. `photometry_time_series` provides loading/writing, normalisation, transit fitting and plotting. `mono_event` fits an individual event at a fixed trial period. `ambiguous_period` combines events and coverage to investigate aliases, include stellar-density constraints, plot solutions and plan follow-up observations. Examples are in [examples](examples/); notebooks can contain target-specific files and paths.
+
+`bruce.sampler` supplies uniform, normal and bounded-normal priors, eccentricity and limb-darkening transforms, `intilise_and_run_sampler`, posterior summaries and corner plots. Its Python likelihood sums finite pointwise contributions and retains the historical policy of ignoring non-finite contributions; validate and mask observations explicitly before scientific fitting.
+
+## TTVs, empirical relations and animations
+
+The TTV helpers exposed by `bruce.binarystar` include `chopping_model`, `scan_companion_period`, `nearest_resonances`, `synodic_period`, `synodic_to_periods`, `plot_single_epoch`, `stroboscopic_ttv_plot`, `plot_period_scan` and `plot_ttv_model`. Additional branch and orbital-geometry helpers are available from `bruce.binarystar.ttv`.
+
+`bruce.empirical_relations.mass_radius` accepts Earth or Jupiter mass and radius units. `radius_to_mass` takes Earth radii and returns Earth masses using the implemented piecewise branches. These empirical estimates are model-dependent; the inverse is not globally unique across all physical regimes.
+
 ```python
-w = bruce.data.median_filter(t,f, 0.2)
-w = bruce.data.convolve_1d(t,w,0.2) # Should you wish to smooth the output
-```
-Its worth noting that the quality of your results can be pretty dependent on the normalisation model, but iof you get it right, the result can be pretty cool.
-<img src="images/template_match.png" width="80%" alt="Template matching"/>
-
-------------------
-## Data processing
-
-We provide a small few packages to help process data. The first is  to efficiently bin data given a bin width. By making a call like this,
-```python
-time_binned, flux_binned, flux_err_binned = bruce.data_processing.bin_data(time, flux, bin_size=0.5/24/3)
-```
-We get fast and efficient binned data.
-<img src="images/binning_test.png" width="80%" alt="Bruce the dog"/></a>
-We also provide functions to normalise and flatten data. I provide a median filter and a 1-d convolution that works in time, not data index:
-```python
-flux_median_filter_10min = bruce.data_processing.median_filter(time, flux, bin_size=0.5/24/3)
-flux_convolved_10min = bruce.data_processing.convolve_1d(time, flux, bin_size=0.5/24/3)
+animation = bruce.visual.animate_orbit(
+    [dict(t_zero=0.0, period=3.0, incl=np.pi / 2,
+          e=0.0, w=np.pi / 2, radius_1=0.1, k=0.1)],
+    t=np.linspace(-0.2, 0.2, 100),
+    save_gif=True, gif_path="orbit.gif",
+)
 ```
 
------------------
+## Command-line tools
 
-## Performance
+| Command | Purpose |
+| --- | --- |
+| `monofind` | Search TESS photometry for transit candidates and produce diagnostic products. |
+| `spocfit` | Interactive fitting of SPOC light curves. |
+| `tesstpf` | Interactive TESS target-pixel inspection and extraction. |
+| `predict` | Predict transits and plot observing visibility. |
+| `ngtsstack` | Normalise and combine NGTS tables. |
+| `j2d` | Convert a Julian Date to a calendar date. |
+| `tj2d` | Convert a TESS time (JD − 2457000) to a calendar date. |
 
-Most functions are expecting contigeous numpy arrays of type np.float64. If not, they will be re-cast in the C-code which ultimately yields a performance penalty. 
+The old `lcmatch` console entry referenced a missing module and has been removed. Its archived implementation remains under `src/utils/backup/`; use `bruce.template_match` for current searches. GUI tools require a graphical session and the `gui` extra.
 
-If you want to use only a single core, you will have to set the OMP_NUM_THREADS enviroment variable whoch controls the number of processes used for parallel regions of the C code. If you are fitting these functions using multiprocesing, it is advised you set this to 1. 
+## Development and repository hygiene
+
+Prefer contiguous `np.float64` arrays to avoid conversion costs. Package submodules load on demand. Optimised builds retain IEEE NaN/Inf handling rather than enabling `-ffast-math`.
+
+Run the deterministic regression suite against a freshly compiled extension:
+
+```bash
+python setup.py build_ext --build-lib /tmp/bruce-lib --build-temp /tmp/bruce-build
+PYTHONPATH=/tmp/bruce-lib:src OMP_NUM_THREADS=1 python -m unittest discover -s tests/regression -v
+```
+
+[Repository audit](docs/REPOSITORY_AUDIT.md) records generated files, retained scientific data and limitations of this refactor. FITS downloads, `mastDownload/`, HDF chains and build/cache products are ignored. Existing ignored downloads are left on disk. Removing working-tree files does not shrink existing Git history.
+
+## Scientific background
+
+The orbital and radial-velocity calculations draw on [ellc](https://github.com/pmaxted/ellc) and the work of Maxted. The transit implementation uses qpower2 and the power-2 limb-darkening law. Existing references are retained here: [Maxted (2016)](https://www.aanda.org/articles/aa/full/2016/07/aa28579-16/aa28579-16.html), [qpower2 reference](https://ui.adsabs.harvard.edu/abs/2019A%26A...622A..33M/abstract), and [Maxted (2018), limb-darkening parameterisation](https://ui.adsabs.harvard.edu/abs/2018A%26A...616A..39M/abstract). Consult the implementations and their cited work before applying assumptions to a new system.

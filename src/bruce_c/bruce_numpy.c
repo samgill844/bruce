@@ -1,105 +1,55 @@
 #define PY_SSIZE_T_CLEAN
+#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include <Python.h>
 #include <numpy/arrayobject.h>
 #include <math.h>
+#ifdef _OPENMP
 #include <omp.h>
-
+#endif
 #include "bruce_src.h"
+
+
+
+
 
 #define N_BIN_MAX 10000
 
 // loglike function implementation with OpenMP
 static PyObject* loglike(PyObject* self, PyObject* args) {
     PyArrayObject *y = NULL, *yerr = NULL, *model = NULL;
-    //PyArrayObject *y_cast = NULL, *yerr_cast = NULL, *model_cast = NULL;
+    PyArrayObject *y_cast = NULL, *yerr_cast = NULL, *model_cast = NULL;
     double jitter, offset;
+    if (!PyArg_ParseTuple(args, "O!O!O!dd", &PyArray_Type, &y,
+                          &PyArray_Type, &yerr, &PyArray_Type, &model,
+                          &jitter, &offset)) return NULL;
 
+    y_cast = (PyArrayObject *)PyArray_FROMANY(
+        (PyObject *)y, NPY_DOUBLE, 1, 1, NPY_ARRAY_IN_ARRAY);
+    if (!y_cast) goto fail;
+    yerr_cast = (PyArrayObject *)PyArray_FROMANY(
+        (PyObject *)yerr, NPY_DOUBLE, 1, 1, NPY_ARRAY_IN_ARRAY);
+    if (!yerr_cast) goto fail;
+    model_cast = (PyArrayObject *)PyArray_FROMANY(
+        (PyObject *)model, NPY_DOUBLE, 1, 1, NPY_ARRAY_IN_ARRAY);
+    if (!model_cast) goto fail;
 
-    // Parse Python arguments (y, yerr, model, jitter, offset)
-    if (!PyArg_ParseTuple(args, "O!O!O!dd", 
-                          &PyArray_Type, &y, 
-                          &PyArray_Type, &yerr, 
-                          &PyArray_Type, &model, 
-                          &jitter, &offset)) {
-        return NULL;
-    }
-
-    // // Ensure the arrays are cast to double if necessary
-    // if (PyArray_TYPE(y) != NPY_DOUBLE) {
-    //     y_cast = (PyArrayObject*) PyArray_FROMANY((PyObject*) y, NPY_DOUBLE, 0, 0, NPY_ARRAY_IN_ARRAY);
-    //     if (!y_cast) goto fail;
-    //     y = y_cast; // Use the casted array
-    // }
-
-    // Ensure the y array is of type double and contiguous
-    PyArrayObject *y_cast = (PyArrayObject *)PyArray_FromAny(
-    (PyObject *)y, PyArray_DescrFromType(NPY_DOUBLE), 0, 0, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
-    if (y_cast == NULL) {
-        PyErr_SetString(PyExc_TypeError, "Failed to cast 'y' to numpy.float64.");
-        return NULL;
-    }
-
-    // if (PyArray_TYPE(yerr) != NPY_DOUBLE) {
-    //     yerr_cast = (PyArrayObject*) PyArray_FROMANY((PyObject*) yerr, NPY_DOUBLE, 0, 0, NPY_ARRAY_IN_ARRAY);
-    //     if (!yerr_cast) goto fail;
-    //     yerr = yerr_cast;
-    // }
-
-    // Ensure the y array is of type double and contiguous
-    PyArrayObject *yerr_cast = (PyArrayObject *)PyArray_FromAny(
-    (PyObject *)yerr, PyArray_DescrFromType(NPY_DOUBLE), 0, 0, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
-    if (yerr_cast == NULL) {
-        PyErr_SetString(PyExc_TypeError, "Failed to cast 'yerr' to numpy.float64.");
-        return NULL;
-    }
-
-    // if (PyArray_TYPE(model) != NPY_DOUBLE) {
-    //     model_cast = (PyArrayObject*) PyArray_FROMANY((PyObject*) model, NPY_DOUBLE, 0, 0, NPY_ARRAY_IN_ARRAY);
-    //     if (!model_cast) goto fail;
-    //     model = model_cast;
-    // }
-
-    // Ensure the y array is of type double and contiguous
-    PyArrayObject *model_cast = (PyArrayObject *)PyArray_FromAny(
-    (PyObject *)model, PyArray_DescrFromType(NPY_DOUBLE), 0, 0, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
-    if (model_cast == NULL) {
-        PyErr_SetString(PyExc_TypeError, "Failed to cast 'yerr' to numpy.float64.");
-        return NULL;
-    }
-
-    // Check that the arrays are contiguous
-    if (!PyArray_ISCONTIGUOUS(y) || !PyArray_ISCONTIGUOUS(yerr) || !PyArray_ISCONTIGUOUS(model)) {
-        PyErr_SetString(PyExc_TypeError, "All input arrays must be contiguous.");
-        goto fail;
-    }
-
-    // Check that the arrays have the same size
-    npy_intp size = PyArray_SIZE(y);
-    if (size != PyArray_SIZE(yerr) || size != PyArray_SIZE(model)) {
+    npy_intp size = PyArray_SIZE(y_cast);
+    if (size != PyArray_SIZE(yerr_cast) || size != PyArray_SIZE(model_cast)) {
         PyErr_SetString(PyExc_ValueError, "Input arrays must have the same size.");
         goto fail;
     }
-
-    // Access the data of the input arrays
-    double *y_data = (double*) PyArray_DATA(y);
-    double *yerr_data = (double*) PyArray_DATA(yerr);
-    double *model_data = (double*) PyArray_DATA(model);
-
-    // Initialize log-likelihood
+    const double *y_data = (double *)PyArray_DATA(y_cast);
+    const double *yerr_data = (double *)PyArray_DATA(yerr_cast);
+    const double *model_data = (double *)PyArray_DATA(model_cast);
     double loglike_val = 0.0;
-
-    // OpenMP parallel reduction
     #pragma omp parallel for reduction(-:loglike_val)
     for (npy_intp i = 0; i < size; i++) {
         loglike_val -= bruce_loglike(y_data[i], yerr_data[i], model_data[i], jitter, offset);
     }
-
-    // Free casted arrays (if allocated) and return result
-    Py_XDECREF(y_cast);
-    Py_XDECREF(yerr_cast);
-    Py_XDECREF(model_cast);
+    Py_DECREF(y_cast);
+    Py_DECREF(yerr_cast);
+    Py_DECREF(model_cast);
     return PyFloat_FromDouble(loglike_val);
-
 fail:
     Py_XDECREF(y_cast);
     Py_XDECREF(yerr_cast);
@@ -131,7 +81,7 @@ static PyObject* lc(PyObject* self, PyObject* args) {
 
     // Ensure the time array is of type double and contiguous
     PyArrayObject *time_cast = (PyArrayObject *)PyArray_FromAny(
-    (PyObject *)time_array, PyArray_DescrFromType(NPY_DOUBLE), 0, 0, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
+    (PyObject *)time_array, PyArray_DescrFromType(NPY_DOUBLE), 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
     if (time_cast == NULL) {
         PyErr_SetString(PyExc_TypeError, "Failed to cast 'time_array' to numpy.float64.");
         return NULL;
@@ -193,6 +143,156 @@ static PyObject* lc(PyObject* self, PyObject* args) {
 
 
 
+
+
+
+
+
+
+// Python wrapper for the _lc function
+static PyObject* xyzz(PyObject* self, PyObject* args) {
+    PyArrayObject *time_array = NULL;
+    PyArrayObject *x = NULL, *y = NULL, *z = NULL, *zz = NULL, *f = NULL;
+    double t_zero, period, incl, e, w;
+    int accurate_tp;
+
+    // Parse Python arguments
+    if (!PyArg_ParseTuple(args, "O!dddddi",
+                          &PyArray_Type, &time_array,  // NumPy array for time
+                          &t_zero, &period,
+                          &incl, &e, &w,
+                          &accurate_tp)) {
+        return NULL;  // Parsing failed
+    }
+
+    // Ensure the time array is of type double and contiguous
+    PyArrayObject *time_cast = (PyArrayObject *)PyArray_FromAny(
+    (PyObject *)time_array, PyArray_DescrFromType(NPY_DOUBLE), 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
+    if (time_cast == NULL) {
+        PyErr_SetString(PyExc_TypeError, "Failed to cast 'time_array' to numpy.float64.");
+        return NULL;
+    }
+
+
+    // Get the size of the time array
+    npy_intp size = PyArray_SIZE(time_cast);
+
+    // Create output arrays of the same size as the time array
+    npy_intp dims[1] = {size};
+    x = (PyArrayObject*) PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+    y = (PyArrayObject*) PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+    z = (PyArrayObject*) PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+    zz = (PyArrayObject*) PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+    f = (PyArrayObject*) PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+    if (x == NULL || y == NULL || z == NULL || zz == NULL) {
+        Py_DECREF(time_cast);
+        Py_XDECREF(x);
+        Py_XDECREF(y);
+        Py_XDECREF(z);
+        Py_XDECREF(zz);
+        Py_XDECREF(f);
+        PyErr_SetString(PyExc_MemoryError, "Failed to allocate output array.");
+        return NULL;
+    }
+
+    // Access the data pointers for the arrays
+    double *time_data_ = (double*) PyArray_DATA(time_cast);
+    double *x_ = (double*) PyArray_DATA(x);
+    double *y_ = (double*) PyArray_DATA(y);
+    double *z_ = (double*) PyArray_DATA(z);
+    double *zz_ = (double*) PyArray_DATA(zz);
+    double *f_ = (double*) PyArray_DATA(f);
+
+    // Perform computation for each element in the time array
+    #pragma omp parallel for
+    for (npy_intp i = 0; i < size; i++) {
+
+        double nu = getTrueAnomaly(time_data_[i], e, w,
+                              period,  t_zero, incl, accurate_tp);
+        double tmp[4];
+        get_xyz_z_(nu, e, incl, w, tmp);
+        x_[i] = tmp[0];
+        y_[i] = tmp[1];  
+        z_[i] = tmp[2];
+        zz_[i] = tmp[3];
+        f_[i] = getProjectedPosition(nu, w , incl);
+    }
+
+    PyObject *result = PyDict_New();
+    if (result == NULL) {
+        Py_DECREF(x);
+        Py_DECREF(y);
+        Py_DECREF(z);
+        Py_DECREF(zz);
+        Py_DECREF(f);
+        Py_DECREF(time_cast);
+        return NULL;
+    }
+    if (PyDict_SetItemString(result, "x", (PyObject*) x) < 0 ||
+        PyDict_SetItemString(result, "y", (PyObject*) y) < 0 ||
+        PyDict_SetItemString(result, "z", (PyObject*) z) < 0 ||
+        PyDict_SetItemString(result, "zz", (PyObject*) zz) < 0 ||
+        PyDict_SetItemString(result, "f", (PyObject*) f) < 0) {
+        Py_DECREF(result);
+        Py_DECREF(x);
+        Py_DECREF(y);
+        Py_DECREF(z);
+        Py_DECREF(zz);
+        Py_DECREF(f);
+        Py_DECREF(time_cast);
+        return NULL;
+    }
+
+    Py_DECREF(x);
+    Py_DECREF(y);
+    Py_DECREF(z);
+    Py_DECREF(zz);
+    Py_DECREF(time_cast);
+    return result;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 static PyObject* lc_loglike(PyObject* self, PyObject* args) {
     PyArrayObject *time_array = NULL, *flux_array = NULL, *flux_err_array = NULL;
     double t_zero, period, radius_1, k, incl, e, w, c, alpha, cadence, light_3, jitter, offset;
@@ -226,7 +326,7 @@ static PyObject* lc_loglike(PyObject* self, PyObject* args) {
 
         // Ensure the time array is of type double and contiguous
     PyArrayObject *time_cast = (PyArrayObject *)PyArray_FromAny(
-    (PyObject *)time_array, PyArray_DescrFromType(NPY_DOUBLE), 0, 0, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
+    (PyObject *)time_array, PyArray_DescrFromType(NPY_DOUBLE), 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
     if (time_cast == NULL) {
         PyErr_SetString(PyExc_TypeError, "Failed to cast 'time_array' to numpy.float64.");
         return NULL;
@@ -247,8 +347,9 @@ static PyObject* lc_loglike(PyObject* self, PyObject* args) {
 
     // Ensure the flux array is of type double and contiguous
     PyArrayObject *flux_cast = (PyArrayObject *)PyArray_FromAny(
-    (PyObject *)flux_array, PyArray_DescrFromType(NPY_DOUBLE), 0, 0, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
+    (PyObject *)flux_array, PyArray_DescrFromType(NPY_DOUBLE), 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
     if (flux_cast == NULL) {
+        Py_DECREF(time_cast);
         PyErr_SetString(PyExc_TypeError, "Failed to cast 'flux_array' to numpy.float64.");
         return NULL;
     }
@@ -269,8 +370,10 @@ static PyObject* lc_loglike(PyObject* self, PyObject* args) {
 
     // Ensure the flux array is of type double and contiguous
     PyArrayObject *flux_err_cast = (PyArrayObject *)PyArray_FromAny(
-    (PyObject *)flux_err_array, PyArray_DescrFromType(NPY_DOUBLE), 0, 0, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
-    if (flux_cast == NULL) {
+    (PyObject *)flux_err_array, PyArray_DescrFromType(NPY_DOUBLE), 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
+    if (flux_err_cast == NULL) {
+        Py_DECREF(time_cast);
+        Py_DECREF(flux_cast);
         PyErr_SetString(PyExc_TypeError, "Failed to cast 'flux_err_array' to numpy.float64.");
         return NULL;
     }
@@ -364,14 +467,14 @@ static PyObject *bin_data(PyObject *self, PyObject *args) {
     // }
     // Ensure input arrays are cast to NPY_DOUBLE
     PyArrayObject *time_array_cast = (PyArrayObject *)PyArray_FromAny(
-        (PyObject *)time_array, PyArray_DescrFromType(NPY_DOUBLE), 0, 0, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
+        (PyObject *)time_array, PyArray_DescrFromType(NPY_DOUBLE), 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
     if (time_array_cast == NULL) {
         PyErr_SetString(PyExc_TypeError, "Failed to cast 'time_array' to numpy.float64.");
         return NULL;
     }
 
     PyArrayObject *flux_array_cast = (PyArrayObject *)PyArray_FromAny(
-        (PyObject *)flux_array, PyArray_DescrFromType(NPY_DOUBLE), 0, 0, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
+        (PyObject *)flux_array, PyArray_DescrFromType(NPY_DOUBLE), 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
     if (flux_array_cast == NULL) {
         Py_DECREF(time_array_cast);
         PyErr_SetString(PyExc_TypeError, "Failed to cast 'flux_array' to numpy.float64.");
@@ -379,9 +482,31 @@ static PyObject *bin_data(PyObject *self, PyObject *args) {
     }
     // printf("Time array size: %d\n", (int)PyArray_SIZE(time_array_cast));
     //print_array_max(time_array_cast);
+    if (PyArray_SIZE(time_array_cast) == 0 ||
+        PyArray_SIZE(time_array_cast) != PyArray_SIZE(flux_array_cast)) {
+        Py_DECREF(time_array_cast);
+        Py_DECREF(flux_array_cast);
+        PyErr_SetString(PyExc_ValueError, "time and flux must be non-empty and equally sized");
+        return NULL;
+    }
     int time_size = (int)PyArray_SIZE(time_array_cast);
     double *time = (double *)PyArray_DATA(time_array_cast);
     double *flux = (double *)PyArray_DATA(flux_array_cast);
+
+    if (!isfinite(bin_size) || bin_size <= 0) {
+        Py_DECREF(time_array_cast);
+        Py_DECREF(flux_array_cast);
+        PyErr_SetString(PyExc_ValueError, "bin_size must be finite and positive");
+        return NULL;
+    }
+    for (int i = 0; i < time_size; i++) {
+        if (!isfinite(time[i]) || (i > 0 && time[i] < time[i - 1])) {
+            Py_DECREF(time_array_cast);
+            Py_DECREF(flux_array_cast);
+            PyErr_SetString(PyExc_ValueError, "time must be finite and sorted");
+            return NULL;
+        }
+    }
 
     // Create edges array
     //printf("%f %f %d",  time[time_size - 1] , time[0], time_size);
@@ -449,6 +574,134 @@ static PyObject *bin_data(PyObject *self, PyObject *args) {
                                      PyArray_Return(count_array));
     return result;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+static PyObject *bin_data_adaptive(PyObject *self, PyObject *args) {
+    PyArrayObject *time_array, *flux_array;
+    double gap, target_bin_size, min_acceptable_bin_size;
+    if (!PyArg_ParseTuple(args, "O!O!ddd",
+                          &PyArray_Type, &time_array,
+                          &PyArray_Type, &flux_array,
+                          &gap, &target_bin_size, &min_acceptable_bin_size)) {
+        return NULL;
+    }
+
+    // Ensure input arrays are cast to NPY_DOUBLE
+    PyArrayObject *time_array_cast = (PyArrayObject *)PyArray_FromAny(
+        (PyObject *)time_array, PyArray_DescrFromType(NPY_DOUBLE), 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
+    if (time_array_cast == NULL) {
+        PyErr_SetString(PyExc_TypeError, "Failed to cast 'time_array' to numpy.float64.");
+        return NULL;
+    }
+
+    PyArrayObject *flux_array_cast = (PyArrayObject *)PyArray_FromAny(
+        (PyObject *)flux_array, PyArray_DescrFromType(NPY_DOUBLE), 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS, NULL);
+    if (flux_array_cast == NULL) {
+        Py_DECREF(time_array_cast);
+        PyErr_SetString(PyExc_TypeError, "Failed to cast 'flux_array' to numpy.float64.");
+        return NULL;
+    }
+    // printf("Time array size: %d\n", (int)PyArray_SIZE(time_array_cast));
+    //print_array_max(time_array_cast);
+    if (PyArray_SIZE(time_array_cast) == 0 ||
+        PyArray_SIZE(time_array_cast) != PyArray_SIZE(flux_array_cast)) {
+        Py_DECREF(time_array_cast);
+        Py_DECREF(flux_array_cast);
+        PyErr_SetString(PyExc_ValueError, "time and flux must be non-empty and equally sized");
+        return NULL;
+    }
+    int time_size = (int)PyArray_SIZE(time_array_cast);
+    double *time = (double *)PyArray_DATA(time_array_cast);
+    double *flux = (double *)PyArray_DATA(flux_array_cast);
+
+    // Make the call
+    Bin *bins = NULL;
+    int nbins = bin_time_series_adaptive(
+        time, flux, time_size,
+        gap, target_bin_size,  min_acceptable_bin_size,
+        &bins            // malloc'd inside
+    );
+
+    if (nbins <= 0) {
+        Py_DECREF(time_array_cast);
+        Py_DECREF(flux_array_cast);
+        free(bins);
+        PyErr_SetString(PyExc_RuntimeError, "No bins were produced.");
+        return NULL;
+    }
+
+    npy_intp dims[1] = { nbins };
+
+    PyArrayObject *t_start_arr = (PyArrayObject *)PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+    PyArrayObject *t_end_arr   = (PyArrayObject *)PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+    PyArrayObject *flux_arr    = (PyArrayObject *)PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+    PyArrayObject *err_arr     = (PyArrayObject *)PyArray_SimpleNew(1, dims, NPY_DOUBLE);
+    PyArrayObject *count_arr   = (PyArrayObject *)PyArray_SimpleNew(1, dims, NPY_INT32);
+
+    if (!t_start_arr || !t_end_arr || !flux_arr || !err_arr || !count_arr) {
+        Py_XDECREF(t_start_arr);
+        Py_XDECREF(t_end_arr);
+        Py_XDECREF(flux_arr);
+        Py_XDECREF(err_arr);
+        Py_XDECREF(count_arr);
+        free(bins);
+        PyErr_SetString(PyExc_MemoryError, "Failed to allocate output arrays.");
+        return NULL;
+    }
+
+    double *t_start = (double *)PyArray_DATA(t_start_arr);
+    double *t_end   = (double *)PyArray_DATA(t_end_arr);
+    double *bflux   = (double *)PyArray_DATA(flux_arr);
+    double *berr    = (double *)PyArray_DATA(err_arr);
+    int    *bcount  = (int *)PyArray_DATA(count_arr);
+
+    for (int i = 0; i < nbins; i++) {
+        t_start[i] = bins[i].t_start;
+        t_end[i]   = bins[i].t_end;
+        bflux[i]   = bins[i].flux;
+        berr[i]    = bins[i].flux_err;
+        bcount[i]  = bins[i].count;
+    }
+
+
+    free(bins);
+
+    Py_DECREF(time_array_cast);
+    Py_DECREF(flux_array_cast);
+
+
+    PyObject *result = PyDict_New();
+    PyDict_SetItemString(result, "t_start",   (PyObject *)t_start_arr);
+    PyDict_SetItemString(result, "t_end",     (PyObject *)t_end_arr);
+    PyDict_SetItemString(result, "flux",      (PyObject *)flux_arr);
+    PyDict_SetItemString(result, "flux_err",  (PyObject *)err_arr);
+    PyDict_SetItemString(result, "count",     (PyObject *)count_arr);
+
+    /* Dict steals no references */
+    Py_DECREF(t_start_arr);
+    Py_DECREF(t_end_arr);
+    Py_DECREF(flux_arr);
+    Py_DECREF(err_arr);
+    Py_DECREF(count_arr);
+
+    return result;
+
+}
+
+
+
 
 
 
@@ -1147,6 +1400,28 @@ static PyObject *phase_dispersion(PyObject *self, PyObject *args)
     PyArrayObject *flux_array = (PyArrayObject *)PyArray_FROMANY(flux_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
     PyArrayObject *flux_err_array = (PyArrayObject *)PyArray_FROMANY(flux_err_obj, NPY_DOUBLE, 1, 1, NPY_ARRAY_ALIGNED | NPY_ARRAY_C_CONTIGUOUS);
 
+    if (!time_trial_array || !peaks_array || !periods_array || !time_array ||
+        !flux_array || !flux_err_array) goto phase_fail;
+    if (PyArray_SIZE(time_array) != PyArray_SIZE(flux_array) ||
+        PyArray_SIZE(time_array) != PyArray_SIZE(flux_err_array)) {
+        PyErr_SetString(PyExc_ValueError, "time, flux and flux_err must have equal sizes");
+        goto phase_fail;
+    }
+    const int *peak_indices = (const int *)PyArray_DATA(peaks_array);
+    for (npy_intp i = 0; i < PyArray_SIZE(peaks_array); i++) {
+        if (peak_indices[i] < 0 || peak_indices[i] >= PyArray_SIZE(time_trial_array)) {
+            PyErr_SetString(PyExc_ValueError, "peak index is outside time_trial");
+            goto phase_fail;
+        }
+    }
+    const double *trial_periods = (const double *)PyArray_DATA(periods_array);
+    for (npy_intp i = 0; i < PyArray_SIZE(periods_array); i++) {
+        if (!isfinite(trial_periods[i]) || trial_periods[i] <= 0) {
+            PyErr_SetString(PyExc_ValueError, "periods must be finite and positive");
+            goto phase_fail;
+        }
+    }
+
     // Lets get the sizes
     int peaks_size = (int)PyArray_SIZE(peaks_array);
     int periods_size = (int)PyArray_SIZE(periods_array);
@@ -1156,6 +1431,12 @@ static PyObject *phase_dispersion(PyObject *self, PyObject *args)
     npy_intp dims[1] = {periods_size};
     PyArrayObject *dispersion_array = (PyArrayObject *)PyArray_ZEROS(1, dims, NPY_DOUBLE, 0);
     PyArrayObject *L_array = (PyArrayObject *)PyArray_ZEROS(1, dims, NPY_DOUBLE, 0);
+
+    if (!dispersion_array || !L_array) {
+        Py_XDECREF(dispersion_array);
+        Py_XDECREF(L_array);
+        goto phase_fail;
+    }
 
     // Now cast to doubles
     const double *time_trial = (const double *)PyArray_DATA(time_trial_array);
@@ -1191,6 +1472,14 @@ static PyObject *phase_dispersion(PyObject *self, PyObject *args)
                                      PyArray_Return(dispersion_array),
                                      PyArray_Return(L_array));
     return result;
+phase_fail:
+    Py_XDECREF(time_trial_array);
+    Py_XDECREF(peaks_array);
+    Py_XDECREF(periods_array);
+    Py_XDECREF(time_array);
+    Py_XDECREF(flux_array);
+    Py_XDECREF(flux_err_array);
+    return NULL;
 }
 
 
@@ -1240,6 +1529,7 @@ static PyMethodDef bruce_c_methods[] = {
     {"lc", lc, METH_VARARGS, "Compute the light curve for an array of times using the given parameters."},
     {"lc_loglike", lc_loglike, METH_VARARGS, "Compute the light curve log-likliehood for an array of times using the given parameters."},
     {"bin_data", bin_data, METH_VARARGS, "Bin data with optional linspace for edges."},
+    {"bin_data_adaptive", bin_data_adaptive, METH_VARARGS, "Bin data with adaptivebin sizes."},
     {"median_filter", median_filter, METH_VARARGS, "median filter data given a filter width."},
     {"convolve_1d", convolve_1d, METH_VARARGS, "Convolve filter data given a filter width."},   
     {"rv1", rv1, METH_VARARGS, "The radial velocity of star 1 given a set of parameters."}, 
@@ -1250,6 +1540,7 @@ static PyMethodDef bruce_c_methods[] = {
     {"template_match_reduce", template_match_reduce, METH_VARARGS, "Template match a lighcurve."},
     {"phase_dispersion", phase_dispersion, METH_VARARGS, "Calculate the dispersion."},
     {"template_match_batch_reduce", template_match_batch_reduce, METH_VARARGS, "Template match batch [radius_1, k, incl]."},
+    {"xyzz", xyzz, METH_VARARGS, "Compute the xyzz given a set of parameters."},
     {NULL, NULL, 0, NULL}  // Sentinel
 };
 

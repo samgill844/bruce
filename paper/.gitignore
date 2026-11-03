@@ -1,0 +1,12 @@
+__pycache__/
+# Official Inara-generated intermediates/proofs
+paper.pdf
+paper.tex
+paper.log
+paper.aux
+paper.out
+paper.bbl
+paper.blg
+# Local HTML embeds machine-specific file URLs; regenerate with render_preview.py.
+output/paper-preview.html
+output/equation-*.png

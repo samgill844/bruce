@@ -5,8 +5,9 @@ double vsign(double a, double b);
 double merge(double a , double b, int mask);
 double brent_minimum_delta(double ax, double bx, double cx, const double * z0); 
 double t_ecl_to_peri(const double t_zero, const double P, const double incl, const double ecc, const double omrad);
+/* Elliptic anomalies in [0, 2*pi); invalid inputs return NaN. */
 double getEccentricAnomaly(double M, const double ecc);
-static inline double getTrueAnomaly(const double time, const double e, const double w, const double period,  const double t_zero, const double incl, const int accurate_tp);
+double getTrueAnomaly(const double time, const double e, const double w, const double period,  const double t_zero, const double incl, const int accurate_tp);
 double get_z(const double nu, const double e, const double incl, const double w, const double radius_1);
 double getProjectedPosition(const double nu, const double w, const double incl);
 
@@ -122,3 +123,23 @@ void template_match_batch(
     const int ld_law,
     const int accurate_tp,
     const double jitter, const int offset);
+
+
+    typedef struct  {
+        double t_start;
+        double t_end;
+        double flux;
+        double flux_err;
+        int count;
+        int count_start;  // << add this
+    } Bin;
+int bin_time_series_adaptive(
+    const double *time,
+    const double *flux,
+    int n,
+    double gap,
+    double target_bin_size,
+    double min_bin_size,
+    Bin **bins_out
+);
+double get_xyz_z_(const double nu, const double e, const double incl, const double w, double * xyzz);

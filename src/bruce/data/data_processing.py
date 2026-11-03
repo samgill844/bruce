@@ -1,12 +1,11 @@
-import bruce_c, numpy as np
+import bruce_c
+import numpy as np
 from scipy.signal import savgol_filter
-from scipy.ndimage.filters import maximum_filter, median_filter
+from scipy.ndimage import maximum_filter, median_filter as ndimage_median_filter
 from scipy.interpolate import UnivariateSpline
-from astropy.table import Table
-import numpy as np, bruce
-from scipy.interpolate import CubicSpline
 from scipy.stats import median_abs_deviation
 from astropy.stats import sigma_clip
+
 
 ###############################################################
 #                  bruce_c wrappers                           #
@@ -14,6 +13,8 @@ from astropy.stats import sigma_clip
 def median_filter(time, flux, bin_size=0.5/24/3) : return bruce_c.median_filter(time, flux, bin_size)
 def convolve_1d(time, flux, bin_size=0.5/24/3) : return bruce_c.convolve_1d(time, flux, bin_size)
 def bin_data(time, flux, bin_size=0.5/24/3) : return bruce_c.bin_data(time, flux, bin_size)
+def bin_data_adaptive(time, flux, gap=0.2, target_bin_size=0.5/24/3, min_acceptable_bin_size=0.25/24/3) : return bruce_c.bin_data_adaptive(time, flux, gap, target_bin_size, min_acceptable_bin_size)
+
 def check_proximity_of_timestamps(time_trial, time, width) : return bruce_c.check_proximity_of_timestamps(time_trial, time, width)
 
 
@@ -21,19 +22,20 @@ def check_proximity_of_timestamps(time_trial, time, width) : return bruce_c.chec
 ###############################################################
 #                  Other functions                            #
 ###############################################################
-def find_optimal_ngts_filter_window(time, flux, windows = np.arange(0.5, 10.5, 0.01)[::-1], verbose=False, tolerence=0.05):
+def find_optimal_ngts_filter_window(time, flux, windows = np.arange(0.5, 10.5, 0.01)[::-1], verbose=False, tolerence=0.05, theoretical_noise=None):
+    if theoretical_noise is None or theoretical_noise <= 0:
+        raise ValueError("Supply theoretical_noise in ppm per 30-minute integration")
     flux = flux / np.nanmedian(flux)
-    time, flux, flux_err, c = bruce.data.bin_data(time,flux, 0.5/24)
+    time, flux, flux_err, c = bin_data(time,flux, 0.5/24)
     mask = (c>5) & ~sigma_clip(flux, masked=True, sigma=5).mask
     time, flux, flux_err, c = time[mask], flux[mask], flux_err[mask], c[mask]
     measured_noise = 1e6*median_abs_deviation(flux)
-    theoretical_noise = np.interp(cat['Tmag'][0], noise_x, noise_y)
     if verbose:
         print('Measured noise : {:,} ppm per 30 min integration'.format(int(measured_noise)))
         print('Target noise : {:,} ppm per 30 min integration'.format(int(theoretical_noise)))
         
     for window in windows:
-        w = bruce.data.median_filter(time, flux, bin_size=window)
+        w = median_filter(time, flux, bin_size=window)
         measured_noise=1e6*median_abs_deviation(flux/w)
         #if verbose : print('   window : {:.2f}   ->   {:,} ppm per 30 min integration'.format(window, measured_noise))
         if (measured_noise/theoretical_noise) < (1+tolerence) :
@@ -43,7 +45,7 @@ def find_optimal_ngts_filter_window(time, flux, windows = np.arange(0.5, 10.5, 0
     # Here, no optimal window found
     if verbose: print('No Optimal window found')
     window = 2
-    w = bruce.data.median_filter(time, flux, bin_size=window)
+    w = median_filter(time, flux, bin_size=window)
     return window,  time, flux, flux_err, c, w
 
 
@@ -52,23 +54,13 @@ def find_nights_from_data(x, dx_lim):
     '''
     Split array buy time gaps. Can be used to get individual nights in datasets.
     '''
-    dx = np.gradient(x) 
-    dx_thresh = np.sort(np.where(dx >= dx_lim)[0] +1)
-
-    # Now check for consecutive integers and delte them
-    delete_idxs = []
-    i = 0 
-    while i < (dx_thresh.shape[0]-1):
-        if (dx_thresh[i]+1) == dx_thresh[i+1] :
-            delete_idxs.append(i+1)
-            i +=2
-        else : i +=1
-    dx_thresh = np.delete(dx_thresh, delete_idxs)
-
-    # create the idx to split
-    idx = np.arange(x.shape[0])
-    d =  np.split(idx, dx_thresh)
-    return [i for i in d if i.shape[0]>0]
+    x = np.asarray(x)
+    if x.ndim != 1:
+        raise ValueError("x must be one-dimensional")
+    if dx_lim <= 0:
+        raise ValueError("dx_lim must be positive")
+    boundaries = np.flatnonzero(np.diff(x) >= dx_lim) + 1
+    return [part for part in np.split(np.arange(x.size), boundaries) if part.size]
 
 
 
@@ -109,8 +101,8 @@ def phase_times(times, epoch, period, phase_offset=0.0):
 
 def flatten_data_with_function(time, flux, method = 'savgol', max_median=0, npoly = 3, Nmaxfilter=11, Nmedianfilter=19, splinesmooth=100, SG_window_length=10, SG_polyorder=3, SG_deriv=0, SG_delta=1., SG_iter=1, SG_sigma=3):
     # Do a maximum/median filter, if needed. 
-    if max_median == 1 : flux = median_filter(maximum_filter(flux, Nmaxfilter), Nmedianfilter)
-    elif max_median == 2 : flux = maximum_filter(median_filter(flux, Nmedianfilter), Nmaxfilter)
+    if max_median == 1 : flux = ndimage_median_filter(maximum_filter(flux, Nmaxfilter), Nmedianfilter)
+    elif max_median == 2 : flux = maximum_filter(ndimage_median_filter(flux, Nmedianfilter), Nmaxfilter)
 
 
     # Now enter the flatten methods
@@ -118,7 +110,7 @@ def flatten_data_with_function(time, flux, method = 'savgol', max_median=0, npol
         return np.poly1d(np.polyfit(time, flux, npoly))(time)
     elif method=='spline':
         spl = UnivariateSpline(time, flux)
-        spl.set_smoothing_factor(30000)
+        spl.set_smoothing_factor(splinesmooth)
         return spl(time)
     elif method=='savgol':
         if SG_window_length > len(time) : 
@@ -137,3 +129,8 @@ def flatten_data_with_function(time, flux, method = 'savgol', max_median=0, npol
                 #mask[sigma_clip(flux - trend, sigma_lower=SG_sigma, sigma_upper=0.5*SG_sigma).mask] = 0
 
             return np.interp(time, time[mask], trend[mask])
+
+
+
+
+    raise ValueError("method must be poly1d, spline or savgol")

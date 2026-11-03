@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="theme-color" content="#f5f7f3">
+	<title>BRUCE / WASM Lab</title>
+	<style>
+		:root {
+			color-scheme: light;
+			--paper: #f5f7f3;
+			--ink: #17221e;
+			--muted: #68736d;
+			--line: #d6ded7;
+			--green: #176b50;
+			--green-soft: #e1eee6;
+			--coral: #d86245;
+			--white: #fff;
+			--mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+			font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+			color: var(--ink);
+			background: var(--paper);
+		}
+
+		* { box-sizing: border-box; }
+		body {
+			min-height: 100vh;
+			margin: 0;
+			background-image: repeating-linear-gradient(0deg, transparent 0 39px, rgb(23 34 30 / 3%) 39px 40px);
+		}
+		.shell { width: min(1080px, calc(100% - 48px)); margin: 0 auto; }
+		header {
+			height: 72px;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			border-bottom: 1px solid var(--line);
+		}
+		.brand { display: flex; align-items: center; gap: 12px; font-size: 13px; font-weight: 750; letter-spacing: 0.08em; }
+		.brand-mark { width: 28px; height: 28px; display: grid; place-items: center; color: var(--white); background: var(--green); font: 12px var(--mono); }
+		.module-state { display: flex; align-items: center; gap: 9px; color: var(--muted); font: 11px var(--mono); text-transform: uppercase; }
+		.state-dot { width: 8px; height: 8px; border-radius: 50%; background: #b3bcb6; }
+		.module-state[data-ready="true"] .state-dot { background: #33956b; box-shadow: 0 0 0 3px var(--green-soft); }
+		.module-state[data-error="true"] .state-dot { background: var(--coral); }
+		main { padding: 54px 0 64px; }
+		.eyebrow { margin: 0 0 10px; color: var(--green); font: 11px var(--mono); letter-spacing: 0.11em; text-transform: uppercase; }
+		h1 { margin: 0; font: 500 clamp(32px, 5vw, 52px)/1.08 Georgia, "Times New Roman", serif; letter-spacing: 0; }
+		.subtitle { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
+		.workspace {
+			display: grid;
+			grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.8fr);
+			margin-top: 38px;
+			border: 1px solid var(--line);
+			background: rgb(255 255 255 / 76%);
+		}
+		.plot-panel { min-width: 0; padding: 24px 26px 20px; border-right: 1px solid var(--line); }
+		.panel-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+		h2 { margin: 0; font-size: 13px; font-weight: 700; }
+		.formula { color: var(--muted); font: 12px var(--mono); white-space: nowrap; }
+		.chart-wrap { position: relative; height: 300px; margin-top: 18px; }
+		canvas { display: block; width: 100%; height: 100%; }
+		.chart-key { display: flex; gap: 20px; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); }
+		.key-item { display: flex; align-items: center; gap: 8px; }
+		.key-line { width: 16px; height: 2px; background: var(--green); }
+		.key-point { width: 8px; height: 8px; border-radius: 50%; background: var(--coral); }
+		.controls { padding: 24px 26px; }
+		.controls h2 { margin-bottom: 22px; }
+		.field { display: grid; grid-template-columns: 1fr 132px; align-items: center; gap: 12px; margin: 0 0 17px; }
+		label { font-size: 13px; }
+		.symbol { display: block; margin-top: 4px; color: var(--muted); font: 11px var(--mono); }
+		input {
+			width: 100%; min-width: 0; height: 38px; padding: 0 10px;
+			border: 1px solid var(--line); border-radius: 4px;
+			background: var(--white); color: var(--ink); font: 13px var(--mono);
+		}
+		input:focus-visible, button:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+		.result {
+			display: flex; align-items: end; justify-content: space-between; gap: 12px;
+			margin-top: 26px; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+		}
+		.result-label { color: var(--muted); font-size: 12px; }
+		output { color: var(--green); font: 23px var(--mono); font-variant-numeric: tabular-nums; }
+		button {
+			width: 100%; min-height: 42px; margin-top: 18px;
+			border: 0; border-radius: 4px; background: var(--green); color: var(--white);
+			font: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+		}
+		button:hover:not(:disabled) { background: #10583f; }
+		button:disabled { cursor: wait; opacity: 0.58; }
+		.error { min-height: 16px; margin: 10px 0 0; color: #aa3e2b; font-size: 12px; }
+		footer { display: flex; justify-content: space-between; gap: 16px; padding-top: 16px; color: var(--muted); font: 10px var(--mono); }
+		@media (max-width: 720px) {
+			.shell { width: min(calc(100% - 32px), 520px); }
+			main { padding-top: 38px; }
+			.workspace { grid-template-columns: 1fr; }
+			.plot-panel { border-right: 0; border-bottom: 1px solid var(--line); padding: 20px; }
+			.controls { padding: 22px 20px; }
+			.chart-wrap { height: 250px; }
+		}
+		@media (max-width: 420px) {
+			.brand > span:last-child span { display: none; }
+			.panel-heading { align-items: flex-start; flex-direction: column; gap: 7px; }
+			.chart-wrap { height: 220px; }
+			.field { grid-template-columns: 1fr 112px; }
+			footer { flex-direction: column; gap: 6px; }
+		}
+		/* Dense parameter controls and paired plots for the template-matching workflow. */
+		main { padding-top: 42px; }
+		h1 { font-size: clamp(32px, 5vw, 48px); }
+		.topline { display: flex; justify-content: space-between; align-items: end; gap: 20px; }
+		.sample-tag { color: var(--muted); font: 11px var(--mono); white-space: nowrap; }
+		.lab { display: grid; grid-template-columns: minmax(0, 1fr) 330px; margin-top: 28px; border: 1px solid var(--line); background: rgb(255 255 255 / 82%); }
+		.results { min-width: 0; padding: 20px 24px; border-right: 1px solid var(--line); }
+		.chart-section + .chart-section { margin-top: 20px; padding-top: 17px; border-top: 1px solid var(--line); }
+		.chart-section .chart-wrap { height: 250px; margin-top: 10px; }
+		.chart-section:last-child .chart-wrap { height: 175px; }
+		.chart-wrap canvas { cursor: grab; touch-action: none; }
+		.chart-wrap canvas:active { cursor: grabbing; }
+		.chart-actions { display: flex; align-items: center; gap: 10px; }
+		.chart-actions button { width: auto; min-height: 30px; margin: 0; padding: 0 9px; border: 1px solid var(--line); background: transparent; color: var(--green); font: 10px var(--mono); }
+		.chart-actions button:hover { background: var(--green-soft); }
+		.chart-key { border-top: 0; padding-top: 2px; }
+		.key-line.model { background: var(--coral); }
+		.key-line.delta { background: #237fa0; }
+		.parameters { padding: 20px; }
+		.parameter-group + .parameter-group { margin-top: 19px; padding-top: 17px; border-top: 1px solid var(--line); }
+		.parameter-group h2 { margin: 0 0 13px; }
+		.parameter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+		.parameter.full-width { grid-column: 1 / -1; }
+		.parameter label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; }
+		.parameter input { height: 34px; padding: 0 8px; font-size: 12px; }
+		.parameter select { width: 100%; min-height: 36px; padding: 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--white); color: var(--ink); font: 11px var(--mono); }
+		.parameter select:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+		.parameter small { display: block; margin-top: 4px; color: var(--muted); font: 10px var(--mono); }
+		.parameters button { margin-top: 18px; }
+		.summary { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0 0; color: var(--muted); font: 11px var(--mono); }
+		.summary strong { color: var(--green); font-weight: 600; text-align: right; }
+		.error { overflow-wrap: anywhere; }
+		@media (max-width: 900px) {
+			.lab { grid-template-columns: minmax(0, 1fr) 300px; }
+			.results { padding: 18px; }
+			.parameters { padding: 18px; }
+		}
+		@media (max-width: 720px) {
+			.lab { grid-template-columns: 1fr; }
+			.results { border-right: 0; border-bottom: 1px solid var(--line); }
+			.chart-section .chart-wrap { height: 220px; }
+			.chart-section:last-child .chart-wrap { height: 160px; }
+		}
+		@media (max-width: 420px) {
+			.topline { align-items: flex-start; flex-direction: column; gap: 10px; }
+			.sample-tag { white-space: normal; }
+			.parameter-grid { gap: 9px; }
+			.parameter.bjd-field { grid-column: 1 / -1; }
+		}
+	</style>
+</head>
+<body>
+	<div class="shell">
+		<header>
+			<div class="brand"><span class="brand-mark" aria-hidden="true">B</span><span>BRUCE <span style="color: var(--muted); font-weight: 500;">/ WASM LAB</span></span></div>
+			<div class="module-state" id="module-state" role="status" aria-live="polite" data-ready="false">
+				<span class="state-dot" aria-hidden="true"></span><span id="state-label">Loading module</span>
+			</div>
+		</header>
+		<main>
+			<div class="topline">
+				<div>
+					<p class="eyebrow">BRUCE C / WebAssembly</p>
+					<h1>Transit template match</h1>
+					<p class="subtitle">Tune the transit model and search trial epochs against the selected NGTS photometry.</p>
+				</div>
+				<div class="sample-tag" id="run-state">Loading matcher...</div>
+			</div>
+			<form id="matcher-form">
+				<section class="lab" aria-label="Template matching experiment">
+					<div class="results">
+						<section class="chart-section">
+							<div class="panel-heading">
+								<h2>Observed light curve</h2>
+								<div class="chart-actions"><span class="formula" id="data-caption">loading observations</span><button id="reset-view" type="button">Fit full range</button></div>
+							</div>
+							<div class="chart-wrap"><canvas id="lightcurve" role="img" aria-label="NGTS photometry and best matching transit template"></canvas></div>
+							<div class="chart-key" aria-hidden="true">
+								<span class="key-item"><span class="key-point"></span>observed flux</span>
+								<span class="key-item"><span class="key-line model"></span>best template</span>
+							</div>
+						</section>
+						<section class="chart-section">
+							<div class="panel-heading"><h2>Template match &Delta;L</h2><span class="formula" id="peak-caption">best trial: --</span></div>
+							<div class="chart-wrap"><canvas id="delta-plot" role="img" aria-label="Delta log likelihood by trial epoch"></canvas></div>
+						</section>
+					</div>
+					<aside class="parameters">
+						<section class="parameter-group">
+							<h2>Template parameters</h2>
+							<div class="parameter-grid">
+								<div class="parameter"><label for="width">Window width</label><input id="width" name="width" type="number" min="0.000001" step="any" value="0.16" required><small>time units</small></div>
+								<div class="parameter"><label for="period">Period</label><input id="period" name="period" type="number" min="0.000001" step="any" value="3.2" required></div>
+								<div class="parameter"><label for="radius_1">Radius 1 / a</label><input id="radius_1" name="radius_1" type="number" min="0.000001" step="any" value="0.08" required></div>
+								<div class="parameter"><label for="k">Radius ratio k</label><input id="k" name="k" type="number" min="0.000001" step="any" value="0.12" required></div>
+								<div class="parameter"><label for="incl">Inclination</label><input id="incl" name="incl" type="number" min="0" max="3.1415926536" step="any" value="1.52" required><small>radians</small></div>
+								<div class="parameter"><label for="ecc">Eccentricity e</label><input id="ecc" name="ecc" type="number" min="0" max="0.95" step="any" value="0" required></div>
+								<div class="parameter"><label for="omega">Periastron w</label><input id="omega" name="omega" type="number" step="any" value="1.5707963268" required><small>radians</small></div>
+								<div class="parameter"><label for="c">Limb darkening c</label><input id="c" name="c" type="number" step="any" value="0.7" required></div>
+								<div class="parameter"><label for="alpha">Limb darkening &alpha;</label><input id="alpha" name="alpha" type="number" step="any" value="0.4" required></div>
+								<div class="parameter"><label for="cadence">Cadence smear</label><input id="cadence" name="cadence" type="number" min="0" step="any" value="0" required></div>
+								<div class="parameter"><label for="noversample">Oversamples</label><input id="noversample" name="noversample" type="number" min="1" step="1" value="10" required></div>
+								<div class="parameter"><label for="light_3">Third light</label><input id="light_3" name="light_3" type="number" min="0" step="any" value="0" required></div>
+								<div class="parameter"><label for="ld_law">LD law</label><input id="ld_law" name="ld_law" type="number" step="1" value="2" required><small>2 = power-2 in this model</small></div>
+								<div class="parameter"><label for="accurate_tp">Accurate transit time</label><input id="accurate_tp" name="accurate_tp" type="number" min="0" max="1" step="1" value="1" required><small>0 or 1</small></div>
+								<div class="parameter"><label for="jitter">Jitter</label><input id="jitter" name="jitter" type="number" min="0" step="any" value="0.001" required></div>
+								<div class="parameter"><label for="offset">Likelihood offset</label><input id="offset" name="offset" type="number" min="0" max="1" step="1" value="0" required><small>0 or 1</small></div>
+							</div>
+						</section>
+						<section class="parameter-group">
+							<h2>Photometry & trial epochs</h2>
+							<div class="parameter-grid">
+								<div class="parameter full-width"><label for="flux-series">Flux and uncertainty columns</label>
+									<select id="flux-series" name="flux_series">
+										<option value="FluxNorm">FluxNorm / FluxNormErr</option>
+										<option value="FluxNormDetrended_Airmass">FluxNormDetrended_Airmass / FluxNormErrDetrended_Airmass</option>
+										<option value="FluxNormDetrended_FluxBkg">FluxNormDetrended_FluxBkg / FluxNormErrDetrended_FluxBkg</option>
+										<option value="FluxNormDetrended_AirmassFluxBkg">FluxNormDetrended_AirmassFluxBkg / FluxNormErrDetrended_AirmassFluxBkg</option>
+									</select>
+								</div>
+								<div class="parameter bjd-field"><label for="trial_start">Trial start BJD</label><input id="trial_start" name="trial_start" type="number" step="any" value="2459649.90" required></div>
+								<div class="parameter bjd-field"><label for="trial_end">Trial end BJD</label><input id="trial_end" name="trial_end" type="number" step="any" value="2459914.55" required></div>
+								<div class="parameter"><label for="trial_points">Trial count</label><input id="trial_points" name="trial_points" type="number" min="3" max="100001" step="1" value="20001" required><small>up to 100,001 epochs</small></div>
+							</div>
+						</section>
+						<button id="run-match" type="submit" disabled>Loading WebAssembly...</button>
+						<p class="error" id="error" role="alert"></p>
+						<div class="summary"><span>Peak &Delta;L</span><strong id="peak-value">--</strong></div>
+						<div class="summary"><span>Usable observations</span><strong id="observation-count">Loading CSV...</strong></div>
+					</aside>
+				</section>
+			</form>
+			<footer><span>template_match(time_trial, &Delta;L, time, flux, flux_err, normalization, ...)</span><span>web/photometry_10min.csv / serial WebAssembly</span></footer>
+		</main>
+	</div>
+	<script type="module">
+		const moduleState = document.querySelector("#module-state");
+		const moduleLabel = document.querySelector("#state-label");
+		const form = document.querySelector("#matcher-form");
+		const runButton = document.querySelector("#run-match");
+		const runState = document.querySelector("#run-state");
+		const error = document.querySelector("#error");	
+		let Bruce;
+		let lightCurveFunction;
+		let templateMatchFunction;
+		let photometryRows;
+		let photometryHeaders;
+		let photometryTimeIndex;
+		let lastRun;
+		let fullXRange;
+		let xView;
+
+		function value(name) { return Number(form.elements[name].value); }
+
+		async function loadPhotometry() {
+			if (photometryRows) return { headers: photometryHeaders, timeIndex: photometryTimeIndex };
+			const response = await fetch("./photometry_10min.csv");
+			if (!response.ok) throw new Error(`CSV request failed (${response.status}).`);
+			const csv = await response.text();
+			const lines = csv.split(/\r?\n/);
+			const headerIndex = lines.findIndex((line) => line.startsWith("BJD,"));
+			if (headerIndex < 0) throw new Error("Could not find the BJD CSV header.");
+			photometryHeaders = lines[headerIndex].split(",");
+			photometryTimeIndex = photometryHeaders.indexOf("BJD");
+			photometryRows = lines.slice(headerIndex + 1).map((line) => line.split(","));	
+			return { headers: photometryHeaders, timeIndex: photometryTimeIndex };
+		}
+
+		function selectedPhotometry(headers, timeIndex) {
+			const fluxName = form.elements.flux_series.value;
+			const errorName = fluxName === "FluxNorm" ? "FluxNormErr" : fluxName.replace("FluxNormDetrended_", "FluxNormErrDetrended_");
+			const fluxIndex = headers.indexOf(fluxName);
+			const errorIndex = headers.indexOf(errorName);
+			if (fluxIndex < 0 || errorIndex < 0) throw new Error(`Missing CSV columns ${fluxName} or ${errorName}.`);
+
+			const rows = [];
+			for (const row of photometryRows) {
+				if (row.length !== headers.length) continue;
+				const fields = [row[timeIndex], row[fluxIndex], row[errorIndex]];
+				if (fields.some((field) => !field || !field.trim())) continue;
+				const [time, flux, fluxErr] = fields.map(Number);
+				if ([time, flux, fluxErr].every(Number.isFinite) && fluxErr >= 0) rows.push([time, flux, fluxErr]);
+			}
+			if (rows.length < 2) throw new Error(`No usable observations found for ${fluxName}.`);
+			return {
+				fluxName,
+				time: new Float64Array(rows.map((row) => row[0])),
+				flux: new Float64Array(rows.map((row) => row[1])),
+				fluxErr: new Float64Array(rows.map((row) => row[2]))
+			};
+		}
+
+		function resizeCanvas(canvas) {
+			const bounds = canvas.getBoundingClientRect();
+			const ratio = window.devicePixelRatio || 1;
+			const pixelWidth = Math.max(1, Math.round(bounds.width * ratio));
+			const pixelHeight = Math.max(1, Math.round(bounds.height * ratio));
+			if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+			if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+			const context = canvas.getContext("2d");
+			context.setTransform(ratio, 0, 0, ratio, 0, 0);
+			return { context, width: bounds.width, height: bounds.height };
+		}
+
+		function plotFrame(context, width, height, bounds, yTicks, xLabel) {
+			const pad = { left: 54, right: 14, top: 12, bottom: 34 };
+			const x = (v) => pad.left + ((v - bounds.xMin) / (bounds.xMax - bounds.xMin)) * (width - pad.left - pad.right);
+			const y = (v) => height - pad.bottom - ((v - bounds.yMin) / (bounds.yMax - bounds.yMin)) * (height - pad.top - pad.bottom);
+			context.clearRect(0, 0, width, height);
+			context.font = "10px SFMono-Regular, Consolas, monospace";
+			context.fillStyle = "#68736d";
+			context.strokeStyle = "#d6ded7";
+			context.lineWidth = 1;
+			for (const tick of yTicks) {
+				const py = y(tick.value);
+				context.beginPath(); context.moveTo(pad.left, py); context.lineTo(width - pad.right, py); context.stroke();
+				context.textAlign = "right"; context.textBaseline = "middle"; context.fillText(tick.label, pad.left - 8, py);
+			}
+			const xTickCount = width < 380 ? 3 : 5;
+			const xSpan = bounds.xMax - bounds.xMin;
+			const decimals = xSpan < 0.1 ? 4 : xSpan < 1 ? 3 : xSpan < 10 ? 2 : 1;
+			for (let i = 0; i < xTickCount; i++) {
+				const fraction = i / (xTickCount - 1);
+				const tickX = pad.left + fraction * (width - pad.left - pad.right);
+				const tickValue = bounds.xMin + fraction * xSpan;
+				context.strokeStyle = "#e5e9e4";
+				context.beginPath(); context.moveTo(tickX, pad.top); context.lineTo(tickX, height - pad.bottom); context.stroke();
+				context.fillStyle = "#68736d";
+				context.textAlign = i === 0 ? "left" : i === xTickCount - 1 ? "right" : "center";
+				context.textBaseline = "top";
+				context.fillText((tickValue - 2459000).toFixed(decimals), tickX, height - pad.bottom + 7);
+			}
+			context.textAlign = "center"; context.textBaseline = "top";
+			context.fillText(xLabel, pad.left + (width - pad.left - pad.right) / 2, height - 12);
+			return { x, y, pad, plotWidth: width - pad.left - pad.right };
+		}
+
+		function drawLightCurve(run) {
+			const { context, width, height } = resizeCanvas(document.querySelector("#lightcurve"));
+			let visibleIndices = [];
+			for (let i = 0; i < run.time.length; i++) {
+				if (run.time[i] >= xView.min && run.time[i] <= xView.max) visibleIndices.push(i);
+			}
+			const rangeIndices = visibleIndices.length >= 10 ? visibleIndices : run.time.map((_, i) => i);
+			const visibleFlux = rangeIndices.map((i) => run.flux[i]).sort((a, b) => a - b);
+			const fluxLow = visibleFlux[Math.floor((visibleFlux.length - 1) * 0.02)];
+			const fluxHigh = visibleFlux[Math.ceil((visibleFlux.length - 1) * 0.98)];
+			const sampleCount = Math.min(12000, Math.max(500, Math.ceil((xView.max - xView.min) / Math.max(run.params.width / 3, 0.002))));
+			const modelSamples = new Float64Array(sampleCount);
+			let modelMin = Infinity;
+			let modelMax = -Infinity;
+			for (let i = 0; i < sampleCount; i++) {
+				const time = xView.min + (i / (sampleCount - 1)) * (xView.max - xView.min);
+				const model = lightCurveFunction(time, run.bestEpoch, run.params.period, run.params.radius_1, run.params.k, run.params.incl, run.params.e, run.params.w, run.params.c, run.params.alpha, run.params.cadence, run.params.noversample, run.params.light_3, run.params.ld_law, run.params.accurate_tp);
+				modelSamples[i] = model;
+				modelMin = Math.min(modelMin, model);
+				modelMax = Math.max(modelMax, model);
+			}
+			const minFlux = Math.min(fluxLow, modelMin);
+			const maxFlux = Math.max(fluxHigh, modelMax);
+			const range = Math.max(maxFlux - minFlux, 0.002);
+			const bounds = {
+				xMin: xView.min,
+				xMax: xView.max,
+				yMin: minFlux - range * 0.18,
+				yMax: maxFlux + range * 0.18
+			};
+			const ticks = Array.from({ length: 4 }, (_, i) => {
+				const val = bounds.yMin + i * (bounds.yMax - bounds.yMin) / 3;
+				return { value: val, label: val.toFixed(4) };
+			});
+			const { x, y } = plotFrame(context, width, height, bounds, ticks, "BJD - 2459000");
+			const canvas = document.querySelector("#lightcurve");
+			canvas.dataset.xMin = String(xView.min);
+			canvas.dataset.xMax = String(xView.max);
+			context.fillStyle = "#d86245";
+			for (const i of visibleIndices) {
+				context.beginPath(); context.arc(x(run.time[i]), y(run.flux[i]), 2.1, 0, 2 * Math.PI); context.fill();
+			}
+			context.beginPath();
+			for (let i = 0; i < sampleCount; i++) {
+				const time = xView.min + (i / (sampleCount - 1)) * (xView.max - xView.min);
+				if (i === 0) context.moveTo(x(time), y(modelSamples[i])); else context.lineTo(x(time), y(modelSamples[i]));
+			}
+			context.strokeStyle = "#176b50"; context.lineWidth = 2; context.stroke();
+		}
+
+		function drawDelta(run) {
+			const { context, width, height } = resizeCanvas(document.querySelector("#delta-plot"));
+			const visibleIndices = [];
+			for (let i = 0; i < run.trials.length; i++) {
+				if (run.trials[i] >= xView.min && run.trials[i] <= xView.max) visibleIndices.push(i);
+			}
+			const visibleDelta = visibleIndices.map((i) => run.delta[i]);
+			const minValue = visibleDelta.reduce((min, delta) => Math.min(min, delta), 0);
+			const maxValue = visibleDelta.reduce((max, delta) => Math.max(max, delta), 0);
+			const span = Math.max(maxValue - minValue, 1);
+			const bounds = { xMin: xView.min, xMax: xView.max, yMin: minValue - span * 0.12, yMax: maxValue + span * 0.12 };
+			const ticks = [bounds.yMin, 0, bounds.yMax].map((v) => ({ value: v, label: v.toFixed(1) }));
+			const { context: ctx, width: w, height: h } = { context, width, height };
+			const { x, y } = plotFrame(ctx, w, h, bounds, ticks, "BJD - 2459000");
+			const canvas = document.querySelector("#delta-plot");
+			canvas.dataset.xMin = String(xView.min);
+			canvas.dataset.xMax = String(xView.max);
+			ctx.beginPath();
+			for (let point = 0; point < visibleIndices.length; point++) {
+				const i = visibleIndices[point];
+				if (point === 0) ctx.moveTo(x(run.trials[i]), y(run.delta[i])); else ctx.lineTo(x(run.trials[i]), y(run.delta[i]));
+			}
+			ctx.strokeStyle = "#237fa0"; ctx.lineWidth = 2; ctx.stroke();
+			if (run.bestEpoch >= xView.min && run.bestEpoch <= xView.max) {
+				ctx.beginPath(); ctx.arc(x(run.bestEpoch), y(run.delta[run.bestIndex]), 4.5, 0, 2 * Math.PI);
+				ctx.fillStyle = "#d86245"; ctx.fill();
+			}
+		}
+
+		function renderPlots() {
+			if (!lastRun || !xView) return;
+			drawLightCurve(lastRun);
+			drawDelta(lastRun);
+		}
+
+		function setXView(min, max) {
+			if (!fullXRange) return;
+			const fullSpan = fullXRange.max - fullXRange.min;
+			const span = Math.min(fullSpan, Math.max(fullSpan / 100000, max - min));
+			const left = Math.max(fullXRange.min, Math.min(min, fullXRange.max - span));
+			xView = { min: left, max: left + span };
+			renderPlots();
+		}
+
+		function installPlotInteractions() {
+			for (const canvas of [document.querySelector("#lightcurve"), document.querySelector("#delta-plot")]) {
+				let drag;
+				canvas.addEventListener("pointerdown", (event) => {
+					if (!xView || event.button !== 0) return;
+					const rect = canvas.getBoundingClientRect();
+					drag = { pointerId: event.pointerId, startX: event.clientX, min: xView.min, max: xView.max, plotWidth: rect.width - 68 };
+					canvas.setPointerCapture(event.pointerId);
+				});
+				canvas.addEventListener("pointermove", (event) => {
+					if (!drag || event.pointerId !== drag.pointerId) return;
+					const shift = (event.clientX - drag.startX) / drag.plotWidth * (drag.max - drag.min);
+					setXView(drag.min - shift, drag.max - shift);
+				});
+				const finishDrag = (event) => {
+					if (drag && event.pointerId === drag.pointerId) drag = undefined;
+				};
+				canvas.addEventListener("pointerup", finishDrag);
+				canvas.addEventListener("pointercancel", finishDrag);
+				canvas.addEventListener("wheel", (event) => {
+					if (!xView || !fullXRange) return;
+					event.preventDefault();
+					const rect = canvas.getBoundingClientRect();
+					const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left - 54) / (rect.width - 68)));
+					const anchor = xView.min + fraction * (xView.max - xView.min);
+					const nextSpan = (xView.max - xView.min) * Math.exp(event.deltaY * 0.001);
+					setXView(anchor - fraction * nextSpan, anchor + (1 - fraction) * nextSpan);
+				}, { passive: false });
+			}
+			document.querySelector("#reset-view").addEventListener("click", () => {
+				if (fullXRange) setXView(fullXRange.min, fullXRange.max);
+			});
+		}
+		installPlotInteractions();
+
+		function allocateArray(array) {
+			const ptr = Bruce._malloc(array.length * Float64Array.BYTES_PER_ELEMENT);
+			if (!ptr) throw new Error("WebAssembly memory allocation failed.");
+			Bruce.HEAPF64.set(array, ptr / Float64Array.BYTES_PER_ELEMENT);
+			return ptr;
+		}
+
+		async function executeMatch() {
+			error.textContent = "";
+			if (!form.reportValidity()) return;
+			const params = {
+				width: value("width"), period: value("period"), radius_1: value("radius_1"), k: value("k"), incl: value("incl"),
+				e: value("ecc"), w: value("omega"), c: value("c"), alpha: value("alpha"), cadence: value("cadence"),
+				noversample: value("noversample"), light_3: value("light_3"), ld_law: value("ld_law"),
+				accurate_tp: value("accurate_tp"), jitter: value("jitter"), offset: value("offset")
+			};
+			const trialStart = value("trial_start");
+			const trialEnd = value("trial_end");
+			const trialCount = Math.floor(value("trial_points"));
+			if (!photometryRows) {
+				error.textContent = "Real photometry has not loaded yet.";
+				return;
+			}
+			if (trialEnd <= trialStart || trialCount < 3 || trialCount > 100001) {
+				error.textContent = "Trial end must exceed trial start and trial count must be between 3 and 100,001.";
+				return;
+			}
+			if (params.noversample < 1 || params.noversample > 101 || !Number.isInteger(params.ld_law) || !Number.isInteger(params.accurate_tp) || !Number.isInteger(params.offset)) {
+				error.textContent = "Oversamples must be 1–101; LD law and flag values must be integers.";
+				return;
+			}
+			if (params.cadence > 0 && params.noversample < 3) {
+				error.textContent = "Cadence smearing requires at least three oversamples.";
+				return;
+			}
+
+			runButton.disabled = true;
+			runButton.textContent = "Matching...";
+			runState.textContent = "Evaluating C template_match";
+			try {
+				const { headers, timeIndex } = await loadPhotometry();
+				const selected = selectedPhotometry(headers, timeIndex);
+				const { time, flux, fluxErr, fluxName } = selected;
+				const dataCount = time.length;
+				fullXRange ??= { min: time[0], max: time[dataCount - 1] };
+				xView ??= { ...fullXRange };
+				const normalization = new Float64Array(dataCount).fill(1);
+				const trials = new Float64Array(trialCount);
+				for (let i = 0; i < trialCount; i++) trials[i] = trialStart + i * (trialEnd - trialStart) / (trialCount - 1);
+				const delta = new Float64Array(trialCount);
+				const pointers = [];
+				try {
+					const timePtr = allocateArray(time); pointers.push(timePtr);
+					const fluxPtr = allocateArray(flux); pointers.push(fluxPtr);
+					const fluxErrPtr = allocateArray(fluxErr); pointers.push(fluxErrPtr);
+					const normalizationPtr = allocateArray(normalization); pointers.push(normalizationPtr);
+					const trialsPtr = allocateArray(trials); pointers.push(trialsPtr);
+					const deltaPtr = allocateArray(delta); pointers.push(deltaPtr);
+					templateMatchFunction(trialsPtr, deltaPtr, timePtr, fluxPtr, fluxErrPtr, normalizationPtr,
+						trialCount, dataCount, params.width, params.period, params.radius_1, params.k, params.incl,
+						params.e, params.w, params.c, params.alpha, params.cadence, params.noversample,
+						params.light_3, params.ld_law, params.accurate_tp, params.jitter, params.offset);
+					delta.set(Bruce.HEAPF64.subarray(deltaPtr / 8, deltaPtr / 8 + trialCount));
+				} finally {
+					for (const ptr of pointers) Bruce._free(ptr);
+				}
+				let bestIndex = 0;
+				for (let i = 1; i < delta.length; i++) if (delta[i] > delta[bestIndex]) bestIndex = i;
+				lastRun = { time, flux, trials, delta, bestIndex, bestEpoch: trials[bestIndex], params };
+				renderPlots();
+				document.querySelector("#peak-value").textContent = delta[bestIndex].toFixed(3);
+				document.querySelector("#peak-caption").textContent = `best trial: ${trials[bestIndex].toFixed(5)}`;
+				document.querySelector("#data-caption").textContent = `${dataCount} observations / ${fluxName}`;
+				document.querySelector("#observation-count").textContent = `${dataCount.toLocaleString()} valid rows`;
+				runState.textContent = "Match complete";
+			} catch (cause) {
+				runState.textContent = "Run failed";
+				error.textContent = `Template matching failed: ${cause.message}`;
+			} finally {
+				runButton.disabled = false;
+				runButton.textContent = "Run template match";
+			}
+		}
+
+		form.addEventListener("submit", (event) => { event.preventDefault(); if (templateMatchFunction) executeMatch(); });
+		form.elements.flux_series.addEventListener("change", () => {
+			if (templateMatchFunction) executeMatch();
+		});
+		window.addEventListener("resize", renderPlots);
+
+		try {
+			const { default: createBruceModule } = await import("./bruce.js");
+			Bruce = await createBruceModule();
+			lightCurveFunction = Bruce.cwrap("__lc", "number", Array(15).fill("number"));
+			templateMatchFunction = Bruce.cwrap("template_match", null, Array(24).fill("number"));
+			const { headers, timeIndex } = await loadPhotometry();
+			const selected = selectedPhotometry(headers, timeIndex);
+			form.elements.trial_start.value = selected.time[0].toFixed(5);
+			form.elements.trial_end.value = selected.time[selected.time.length - 1].toFixed(5);
+			fullXRange = { min: selected.time[0], max: selected.time[selected.time.length - 1] };
+			xView = { ...fullXRange };
+			document.querySelector("#observation-count").textContent = `${selected.time.length.toLocaleString()} valid rows`;
+			moduleState.dataset.ready = "true";
+			moduleLabel.textContent = "WASM ready";
+			runButton.disabled = false;
+			runButton.textContent = "Run template match";
+			executeMatch();
+		} catch (cause) {
+			moduleState.dataset.error = "true";
+			moduleLabel.textContent = "Module error";
+			runState.textContent = "Build module exports required";
+			error.textContent = `Could not load template_match from bruce.js: ${cause.message}`;
+			runButton.textContent = "Unavailable";
+		}
+	</script>
+</body>
+</html>

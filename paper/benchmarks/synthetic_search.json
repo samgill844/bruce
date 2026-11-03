@@ -1,0 +1,56 @@
+{
+  "seed": 314,
+  "parameters": {
+    "period": 6.0,
+    "radius_1": 0.05,
+    "k": 0.1,
+    "incl": 1.5557957642379359,
+    "e": 0.0,
+    "w": 1.5707963267948966,
+    "c": 0.7,
+    "alpha": 0.4,
+    "accurate_tp": 0
+  },
+  "assumed_space_epochs": [
+    2.5,
+    14.5
+  ],
+  "injected_ground_epochs": [
+    2.5,
+    8.5,
+    14.5
+  ],
+  "recovered_ground_epochs": [
+    2.5000000000000018,
+    8.500000000000007,
+    14.500000000000012
+  ],
+  "aliases": [
+    12.0,
+    6.0,
+    4.0,
+    3.0,
+    2.4,
+    2.0
+  ],
+  "third_event_consistent": [
+    false,
+    true,
+    false,
+    true,
+    false,
+    true
+  ],
+  "nondetections_consistent": [
+    true,
+    true,
+    false,
+    false,
+    true,
+    false
+  ],
+  "retained_periods": [
+    6.0
+  ],
+  "note": "Illustrative epoch/coverage checks, not calibrated alias probabilities."
+}

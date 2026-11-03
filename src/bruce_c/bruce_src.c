@@ -1,13 +1,31 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#ifndef __EMSCRIPTEN__
+#ifdef _OPENMP
 #include <omp.h>
+#endif
+#endif
+#include <math.h>
+#include <string.h>
+
 #define N_BIN_MAX 10000
 #define MAX_WINDOW_SIZE 1024
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+
+    typedef struct  {
+        double t_start;
+        double t_end;
+        double flux;
+        double flux_err;
+        int count;
+        int count_start;  // << add this
+    } Bin;
+
 
 double bruce_loglike(const double y, const double yerr, const double model,
                 const double jitter, const int offset)
@@ -169,11 +187,23 @@ double t_ecl_to_peri(const double t_zero, const double P, const double incl, con
 
 }
 
+/* Return an angle in [0, 2*pi), including negative input phases. */
+static double wrap_orbital_angle(double angle)
+{
+    angle = fmod(angle, 2*M_PI);
+    if (angle < 0.) angle += 2*M_PI;
+    /* Adding 2*pi to a tiny negative angle may round up to 2*pi. */
+    return (angle == 0. || angle >= 2*M_PI) ? 0. : angle;
+}
+
+/* Elliptic Kepler solver; invalid inputs return NaN. */
 double getEccentricAnomaly(double M, const double ecc)
 {
-    M = fmod(M , 2*M_PI);
+    if (!isfinite(M) || !isfinite(ecc) || ecc < 0. || ecc >= 1.)
+        return NAN;
+    M = wrap_orbital_angle(M);
     int flip = 0;
-    if (ecc == 0) return M;
+    if (ecc == 0. || M == 0.) return M;
     if (M > M_PI)
     {
         M = 2*M_PI - M;
@@ -197,35 +227,70 @@ double getEccentricAnomaly(double M, const double ecc)
     return E;
 }
 
-static inline double getTrueAnomaly(const double time, const double e, const double w, const double period,  const double t_zero, const double incl, const int accurate_tp)
+double getTrueAnomaly(const double time, const double e, const double w, const double period,  const double t_zero, const double incl, const int accurate_tp)
 {
+    /* t_zero is the eclipse epoch; all angles are in radians. */
+    if (!isfinite(time) || !isfinite(t_zero) || !isfinite(period) ||
+        period <= 0. || !isfinite(e) || e < 0. || e >= 1. ||
+        !isfinite(w) || !isfinite(incl))
+        return NAN;
+
+    /* A circular orbit needs neither an eclipse minimisation nor a solver. */
+    if (e == 0.)
+        return wrap_orbital_angle(2*M_PI*fmod((time-t_zero)/period, 1.)
+                                  + 0.5*M_PI - w);
+
     double tp;
-    if (accurate_tp==1) tp = t_ecl_to_peri(t_zero,period,incl,e,w);
-    else tp = 0.;
-
-    if (e<1e-5) 
-    {
-        return ((time - tp)/period - floor(((time - tp)/period)))*2.*M_PI;
+    if (accurate_tp == 1) {
+        tp = t_ecl_to_peri(t_zero, period, incl, e, w);
+    } else {
+        /* Edge-on conjunction approximation: nu_zero = pi/2 - w. */
+        double nu_zero = 0.5*M_PI - w;
+        double E_zero = atan2(sqrt((1.-e)*(1.+e))*sin(nu_zero),
+                              e + cos(nu_zero));
+        tp = t_zero - (E_zero - e*sin(E_zero))*period/(2*M_PI);
     }
-    else
-    {
-        // Calcualte the mean anomaly
-        double M = 2*M_PI*fmod((time -  tp  )/period , 1.);
 
-        // Calculate the eccentric anomaly
-        double E = getEccentricAnomaly(M, e);
-        
-        // Now return the true anomaly
-        return 2.*atan(sqrt((1.+e)/(1.-e))*tan(E/2.));
-    }
+    double M = 2*M_PI*fmod((time-tp)/period, 1.);
+    double E = getEccentricAnomaly(M, e);
+    /* Half-angle atan2 avoids tan(E/2)'s singularity at apastron. */
+    double nu = 2.*atan2(sqrt(1.+e)*sin(E/2.),
+                         sqrt(1.-e)*cos(E/2.));
+    return wrap_orbital_angle(nu);
 }
-
-double get_z(const double nu, const double e, const double incl, const double w, const double radius_1) {return (1-pow(e,2)) * sqrt( 1.0 - pow(sin(incl),2)  *  pow(sin(nu + w),2)) / (1 + e*cos(nu)) /radius_1;}
 
 double getProjectedPosition(const double nu, const double w, const double incl) { return sin(nu+w)*sin(incl);}
 
+double get_z(const double nu, const double e, const double incl, const double w, const double radius_1) {return (1-pow(e,2)) * sqrt( 1.0 - pow(sin(incl),2)  *  pow(sin(nu + w),2)) / (1 + e*cos(nu)) /radius_1;}
 
 
+double get_xyz_z_(const double nu, const double e, const double incl, const double w, double * xyzz)
+{
+    double r;
+    double cosw;
+    double sinw;
+    double sini = sin(incl);
+    double sinv = sin(nu);
+    double cosv = cos(nu);
+    double cosi = sqrt(1.0 - sini * sini);
+
+    if (e == 0.0) {
+        r = 1.0;
+        cosw = 0.0;
+        sinw = -1.0;
+    } else {
+        r = (1.0 - e * e) / (1.0 + e * cos(nu));
+        cosw = -cos(w);
+        sinw = -sin(w);
+    }
+
+    xyzz[0] = r * (-sinv * sinw + cosv * cosw);
+    xyzz[1] = r * cosi * (cosv * sinw + sinv * cosw);
+    xyzz[2] = -r * sini * (cosw * sinv + cosv * sinw);
+    xyzz[3] = get_z(nu, e, incl, w, 0.1);
+
+    return xyzz[3];
+}
 
 
 
@@ -766,6 +831,19 @@ void check_proximity_of_timestamps(const double *x_trial, const double *x_ref, c
     }
 }
 
+static int lower_bound_time(const double *time, const int size, const double target)
+{
+    int low = 0;
+    int high = size;
+    while (low < high)
+    {
+        int middle = low + (high - low) / 2;
+        if (time[middle] < target) low = middle + 1;
+        else high = middle;
+    }
+    return low;
+}
+
 void template_match(
     const double *time_trial_g, double *DeltaL_trial_g, 
     const double *time_g, const double *flux_g, const double *flux_err_g,  const double *normalisation_model, 
@@ -783,14 +861,27 @@ void template_match(
 {
 
     double model;
+    int time_is_sorted = 1;
+    for (int i = 0; i < size; i++)
+    {
+        if (!isfinite(time_g[i]) || (i > 0 && time_g[i] < time_g[i - 1]))
+        {
+            time_is_sorted = 0;
+            break;
+        }
+    }
+
     #pragma omp parallel for private(model)
     for (int gid=0; gid < size_trial; gid++)
     {
         DeltaL_trial_g[gid] = 0.0;  // Ensure clean initialization
         // Get the first model
-        for (int x=0; x < size; x++)
+        double half_width = width / 2.0;
+        int x_start = time_is_sorted ? lower_bound_time(time_g, size, time_trial_g[gid] - half_width) : 0;
+        int x_end = time_is_sorted ? lower_bound_time(time_g, size, time_trial_g[gid] + half_width) : size;
+        for (int x=x_start; x < x_end; x++)
         {
-            if (fabs(time_trial_g[gid] - time_g[x]) < (width/2))
+            if (fabs(time_trial_g[gid] - time_g[x]) < half_width)
             {
                 model = normalisation_model[x]*_lc(time_g[x],
                                 time_trial_g[gid], period,
@@ -1298,8 +1389,6 @@ void compute_dispersion(
     const int num_periods,
     const int time_size
 ) {
-    double phase_width=0.025586783736075144;
-
     #pragma omp parallel for
     for (int i = 0; i < num_periods; i++) 
     {        
@@ -1316,6 +1405,7 @@ void compute_dispersion(
 
         /*
         // Now factor in chi-squared
+        double phase_width=0.025586783736075144;
         double phase_mean=0.;
         for (int j = 0; j < num_peaks; j++) { phase_mean += fmod(time_trial[peaks[j]] / periods[i], 1.0);};
         phase_mean /= num_peaks;
@@ -1335,4 +1425,139 @@ void compute_dispersion(
         }
         */
     }
+}
+
+
+
+
+
+
+
+
+
+
+static void compute_bin_stats(
+    const double *flux, int start, int end,
+    double *mean, double *err
+) {
+    int n = end - start;
+    if (n <= 0) {
+        *mean = NAN;
+        *err  = NAN;
+        return;
+    }
+
+    double sum = 0.0;
+    for (int i = start; i < end; i++)
+        sum += flux[i];
+
+    *mean = sum / n;
+
+    double var = 0.0;
+    for (int i = start; i < end; i++) {
+        double d = flux[i] - *mean;
+        var += d * d;
+    }
+
+    var /= n;
+    *err = sqrt(var) / sqrt((double)n);
+}
+
+
+// Adaptive binning function
+int bin_time_series_adaptive(
+    const double *time,
+    const double *flux,
+    int n,
+    double gap,                  // gap to split segments
+    double target_bin_width,     // target width of each bin (time units)
+    double min_bin_width,        // minimum acceptable width for last bin
+    Bin **bins_out
+) {
+    if (n <= 0 || target_bin_width <= 0.0 || min_bin_width <= 0.0) return 0;
+    if (min_bin_width > target_bin_width) min_bin_width = target_bin_width;
+
+    int capacity = n;  // max bins
+    Bin *bins = malloc(capacity * sizeof(Bin));
+    int nbins = 0;
+
+    int seg_start = 0;
+
+    while (seg_start < n) {
+        // ----------- Find segment ----------
+        int seg_end = seg_start + 1;
+        while (seg_end < n && (time[seg_end] - time[seg_end - 1]) < gap)
+            seg_end++;
+
+        double seg_start_time = time[seg_start];
+        double seg_end_time   = time[seg_end - 1];
+        double seg_len        = seg_end_time - seg_start_time;
+
+        if (seg_len <= 0.0) {
+            seg_start = seg_end;
+            continue;
+        }
+
+        // ----------- Create bins ----------
+        double bin_start_time = seg_start_time;
+
+        while (bin_start_time < seg_end_time) {
+            double bin_end_time = bin_start_time + target_bin_width;
+            if (bin_end_time > seg_end_time)
+                bin_end_time = seg_end_time;
+
+            // --------- Find indices for this bin ---------
+            int start_idx = seg_start;
+            while (start_idx < seg_end && time[start_idx] < bin_start_time)
+                start_idx++;
+            int end_idx = start_idx;
+            while (end_idx < seg_end && time[end_idx] <= bin_end_time)
+                end_idx++;
+
+            if (end_idx <= start_idx) {
+                bin_start_time = bin_end_time;
+                continue;
+            }
+
+            // --------- Handle last bin merging ----------
+            double remaining = seg_end_time - bin_start_time;
+            if (remaining < min_bin_width && nbins > 0) {
+                // merge only with previous bin
+                if (end_idx > start_idx) {
+                    bins[nbins-1].t_end = seg_end_time;
+
+                    // recompute stats for merged bin
+                    int merged_start = bins[nbins-1].t_start == bins[nbins-1].t_end ? start_idx-1 : start_idx;
+                    compute_bin_stats(flux, merged_start, seg_end,
+                                      &bins[nbins-1].flux,
+                                      &bins[nbins-1].flux_err);
+
+                    bins[nbins-1].count = seg_end - merged_start;
+                }
+                break;
+            }
+
+            // --------- Store bin ----------
+            if (nbins >= capacity) {
+                capacity *= 2;
+                bins = realloc(bins, capacity * sizeof(Bin));
+            }
+
+            bins[nbins].t_start = time[start_idx];
+            bins[nbins].t_end   = time[end_idx - 1];
+            bins[nbins].count   = end_idx - start_idx;
+
+            compute_bin_stats(flux, start_idx, end_idx,
+                              &bins[nbins].flux,
+                              &bins[nbins].flux_err);
+
+            nbins++;
+            bin_start_time = bin_end_time;
+        }
+
+        seg_start = seg_end;
+    }
+
+    *bins_out = bins;
+    return nbins;
 }

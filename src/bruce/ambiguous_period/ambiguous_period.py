@@ -25,10 +25,10 @@ from matplotlib.dates import AutoDateLocator, DateFormatter
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 class ambiguous_period:
-    def __init__(self, data, events=[], 
+    def __init__(self, data, events=None,
                  name='Period resolver',median_bin_size = 1,convolve_bin_size = 1):
         self.data = data
-        self.events = events
+        self.events = [] if events is None else events
         self.name=name
         self.median_bin_size = median_bin_size
         self.convolve_bin_size = convolve_bin_size
@@ -50,8 +50,9 @@ class ambiguous_period:
                 data_to_be_grouped.append(data_list_sorted[i])
                 data_to_be_grouped_labels.append(data_list_labels_sorted[i])
             else:
-                other_data.append(data_list_sorted[i])
-                other_data_labels.append(data_list_labels_sorted[i])
+                if (data_list_labels_sorted[i] not in other_data_labels) and (data_list_labels_sorted[i] not in data_to_be_grouped_labels):
+                    other_data.append(data_list_sorted[i])
+                    other_data_labels.append(data_list_labels_sorted[i])
 
         # Now concat
         time, flux, flux_err = [],[],[]
@@ -209,6 +210,7 @@ class ambiguous_period:
 
         # Base red mask
         alias_colours[self.delta_L[0] < (-self.height)] = 'xkcd:salmon'
+        alias_colours[self.delta_L[0] > (self.height)] = 'xkcd:green'
 
         for i in range(1, len(phot_data) + 1):
 
@@ -234,8 +236,8 @@ class ambiguous_period:
         for i in range(alias_colours.shape[0]):
             for j in range(alias_colours.shape[1]):
                 if len(alias_colours[i,j])>1 : ax[i,j].set_facecolor(alias_colours[i,j])
-                title = 'Alias P{:} [{:.3f} d]\n{:}'.format(self.aliases[i], self.max_period/self.aliases[i], phot_data_labels[j])
-                ax[i,j].set(xlabel='PHASE', ylabel='FLUX', title=title)
+                #title = 'Alias P{:} [{:.3f} d]\n{:}'.format(self.aliases[i], self.max_period/self.aliases[i], phot_data_labels[j])
+                #ax[i,j].set(xlabel='PHASE', ylabel='FLUX', title=title)
 
         
 
@@ -254,8 +256,7 @@ class ambiguous_period:
             
             phase_width = width/(self.max_period/self.aliases[i])
             ax[i][0].set_xlim(-phase_width,phase_width)
-            
-            
+            ax[i][0].set_ylim(ylim)            
             
             for j in range(len(phot_data)):
                 phase = bruce.data.phase_times(phot_data[j].time, epoch , self.max_period/self.aliases[i], phase_offset=0.2)
@@ -437,6 +438,13 @@ class ambiguous_period:
                     min_time_in_transit=None, min_frac_in_transit=None):
         # Now query tic8 
         tic8 = Catalogs.query_object('TIC{:}'.format(tic_id), radius=.02, catalog="TIC")[0]
+        # from pyngts.ngts_db import NGTS_DB 
+        # DB = NGTS_DB()
+        # qry = 'SELECT * from catalogues.tic8 WHERE tic_id={:};'.format(tic_id)
+        # print(qry)
+        # tic8 = DB.custom_query(qry, one=True)
+        # tic8['ra'] = tic8['ra_deg']
+        # tic8['dec'] = tic8['dec_deg']
         target = SkyCoord(tic8['ra']*u.deg, tic8['dec']*u.deg)
         
         time_range = time_grid_from_range((start,end), time_resolution=resolution)
@@ -697,6 +705,7 @@ class ambiguous_period:
             title +='\nObservatory: ' + row['observatory'] + ' [{:}]'.format(row['night'])
             # title += '\nAlias(es): P{:} [{:} days]'.format(row['aliasP'], row['aliasPer'])
             title += '\nAlias(es): P{:} [{} days], {} remaining'.format(row['aliasP'], fmt_number_str(row['aliasPer'], ndigits=2), row['naliasesleft'])
+            title += '\nPriority {:}'.format(row['Priority'])
             plt.xlabel('Time', fontsize=12)
             plt.ylabel('Altitude', fontsize=12)
             plt.title(title, ha='left', loc='left', fontsize=12)
@@ -760,3 +769,38 @@ class ambiguous_period:
 
             plt.tight_layout()
             return fig, ax
+
+
+    def calcualte_viable_aliases_from_delta_L(self):
+
+        delta_L = self.delta_L.T
+
+        n_aliases, n_datasets = delta_L.shape
+
+        # All aliases are initially viable
+        viable = np.ones(n_aliases, dtype=bool)
+
+        # Store which aliases are viable after each dataset
+        mask = np.zeros((n_aliases, n_datasets), dtype=bool)
+
+        for j in range(n_datasets):
+
+            current_red = delta_L[:, j] < -self.height
+            current_green = delta_L[:, j] > self.height
+
+            # Anything with a negative excursion is no longer viable
+            viable &= ~current_red
+
+            # Of the aliases which are still viable, find those which
+            # produce a positive/transit excursion at this dataset
+            green_allowed = viable & current_green
+
+            # If at least one viable alias is green, ONLY those aliases
+            # remain viable. All other aliases are now ruled out.
+            if green_allowed.any():
+                viable = green_allowed
+
+            # Record the surviving aliases after this dataset
+            mask[:, j] = viable
+
+        return mask

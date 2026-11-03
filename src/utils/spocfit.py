@@ -1009,8 +1009,8 @@ def main():
 
 
 
-        def load_data(self, tic_id ):
-            data_table, data, data_labels, base_dir = bruce.ambiguous_period.data_retrieval.download_tess_data(tic_id, use_ffi=True)
+        def load_data(self, tic_id , sector=None):
+            data_table, data, data_labels, base_dir = bruce.ambiguous_period.data_retrieval.download_tess_data(tic_id, use_ffi=True, sector=sector)
 
             self.data = Table() 
             self.data.add_column(Column(np.concatenate( [i.time-2457000.0 for i in data]  ), name='TIME'))
@@ -1125,7 +1125,7 @@ def main():
     
     # Create a plot with some random data
     app = Window(title='TIC-{:}'.format(sys.argv[1]))
-    app.load_data(sys.argv[1])
+    app.load_data(sys.argv[1], int(sys.argv[2]) if len(sys.argv)>2 else None)
     app.query_tic_params()
     app.draw_data()
 
