@@ -168,19 +168,7 @@ animation = bruce.visual.animate_orbit(
 
 The old `lcmatch` console entry referenced a missing module and has been removed. Its archived implementation remains under `src/utils/backup/`; use `bruce.template_match` for current searches. GUI tools require a graphical session and the `gui` extra.
 
-## Development and repository hygiene
-
-Prefer contiguous `np.float64` arrays to avoid conversion costs. Package submodules load on demand. Optimised builds retain IEEE NaN/Inf handling rather than enabling `-ffast-math`.
-
-Run the deterministic regression suite against a freshly compiled extension:
-
-```bash
-python setup.py build_ext --build-lib /tmp/bruce-lib --build-temp /tmp/bruce-build
-PYTHONPATH=/tmp/bruce-lib:src OMP_NUM_THREADS=1 python -m unittest discover -s tests/regression -v
-```
-
-[Repository audit](docs/REPOSITORY_AUDIT.md) records generated files, retained scientific data and limitations of this refactor. FITS downloads, `mastDownload/`, HDF chains and build/cache products are ignored. Existing ignored downloads are left on disk. Removing working-tree files does not shrink existing Git history.
 
 ## Scientific background
 
-The orbital and radial-velocity calculations draw on [ellc](https://github.com/pmaxted/ellc) and the work of Maxted. The transit implementation uses qpower2 and the power-2 limb-darkening law. Existing references are retained here: [Maxted (2016)](https://www.aanda.org/articles/aa/full/2016/07/aa28579-16/aa28579-16.html), [qpower2 reference](https://ui.adsabs.harvard.edu/abs/2019A%26A...622A..33M/abstract), and [Maxted (2018), limb-darkening parameterisation](https://ui.adsabs.harvard.edu/abs/2018A%26A...616A..39M/abstract). Consult the implementations and their cited work before applying assumptions to a new system.
+The keplerian solutions and radial-velocity calculations draw upon the source code of [ellc](https://github.com/pmaxted/ellc) as described here: [Maxted (2016)](https://www.aanda.org/articles/aa/full/2016/07/aa28579-16/aa28579-16.html). The transit implementation uses the anlytical qpower2 model [Maxted and Gill 2019](https://ui.adsabs.harvard.edu/abs/2019A%26A...622A..33M/abstract). 
