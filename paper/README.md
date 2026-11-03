@@ -1,17 +1,17 @@
 # BRUCE JOSS manuscript
 
-This directory contains a first author draft for the *Journal of Open Source Software*. The manuscript follows the current [JOSS paper format](https://joss.readthedocs.io/en/latest/paper.html): YAML metadata, a short research-software article and the required substantive sections. It is approximately 1,735 words including figure captions, within the current 750–1,750-word range. See [AUTHOR_NOTES.md](AUTHOR_NOTES.md) for items that require author review before submission.
+This directory contains a first author draft for the *Journal of Open Source Software*. The manuscript follows the current [JOSS paper format](https://joss.readthedocs.io/en/latest/paper.html): YAML metadata, a short research-software article and the required substantive sections. It is approximately 1,748 words including figure captions, The current JOSS target is 750–1,750 words; run the checker after editing.
 
 ## Main files
 
 - [paper.md](paper.md): the editable JOSS manuscript, with Samuel Gill's supplied name, affiliation and ORCID.
 - [paper.bib](paper.bib): 20 literature/software references with DOI or source links and full journal names.
 - [output/paper-preview.pdf](output/paper-preview.pdf): locally typeset reading copy. This is **not the official JOSS proof**.
-- [figures/](figures/): a single-panel synthetic transit-fit figure and a measured likelihood-throughput figure, supplied as PNG and vector PDF.
+- [figures/](figures/): a two-panel matched-law BRUCE/ellc comparison and a measured likelihood-throughput figure, supplied as PNG and vector PDF.
 - [benchmarks/results.json](benchmarks/results.json): raw timing repetitions, settings, source hashes and machine details.
 - [benchmarks/synthetic_transit.csv](benchmarks/synthetic_transit.csv) and [synthetic_fit.json](benchmarks/synthetic_fit.json): reproducible demonstration data and fitted parameters.
 
-The synthetic transit is generated and fitted with BRUCE itself. The template-search and alias-resolution use cases are illustrated by references to published recovery studies. It demonstrates a workflow; it is not an independent test of transit physics. No actual astronomical target or survey result is claimed. The benchmark compares BRUCE operations/thread counts, not competing software.
+The main figure compares BRUCE with numerical integration of the identical power-2 law in ellc. Supplementary synthetic transits are generated and fitted with BRUCE itself. The template-search and alias-resolution use cases are illustrated by references to published recovery studies. It demonstrates a workflow; it is not an independent test of transit physics. No actual astronomical target or survey result is claimed. The comparison is instantaneous and covers one specified geometry; it is not a global error bound. The benchmark compares BRUCE operations/thread counts, not competing software.
 
 ## Reproduce the measurements and figures
 
@@ -28,7 +28,7 @@ The recorded draft measurements were made on 3 November 2026 with Apple Clang 21
 
 All cases use `period=3` days, `radius_1=0.1`, `k=0.1`, `incl=arccos(0.03)`, `w=0.7`, `c=0.7`, `alpha=0.4`, no third light, fixed flux errors of 0.001, zero jitter, `offset=0` and `accurate_tp=0`. Times span −0.15 to +0.15 days. The cases are instantaneous circular motion, instantaneous eccentric motion (`e=0.4`), and circular motion integrated over 2 minutes with 11 subsamples. The seed is 42. Re-running overwrites the raw results, so update numerical claims in `paper.md` if the results change.
 
-Hardware fields in the retained JSON were completed from a separately authorised read-only `sysctl` query because the sandbox prevented the worker from reading them. The benchmark records the working tree as dirty and stores source hashes: the Git commit alone does not identify the measured code. Commit the final measured source and repeat measurements for the release submission. The manuscript's timing claims use this particular OpenMP build; do not treat a serial build as equivalent.
+Hardware fields in the retained JSON come from the earlier authorised read-only `sysctl` query on this machine; the benchmark was refreshed after correcting the likelihood-wrapper argument type. Pre-fix records are retained under `benchmarks/archive/pre_wrapper_fix/`. The benchmark records the working tree as dirty and stores source hashes: the Git commit alone does not identify the measured code. Commit the final measured source and repeat measurements for the release submission. The manuscript's timing claims use this particular OpenMP build; do not treat a serial build as equivalent.
 
 The benchmark does not establish speed relative to `batman`, `ellc` or PyTransit. Such comparisons need matched physical and numerical settings and accuracy checks. It also does not measure posterior sampling throughput, archive processing or full template-search performance. A higher thread count can increase overhead for small workloads, and CPU load and thermal state affect timings.
 
@@ -39,7 +39,7 @@ python paper/scripts/check_paper.py
 PYTHONPATH=/tmp/bruce-paper-lib:src MPLCONFIGDIR=/tmp/bruce-paper-mpl OMP_NUM_THREADS=1 python -m unittest discover -s tests/regression -v
 ```
 
-The manuscript checker verifies metadata, required section headings, citation keys, image files, cross-references, approximate word count and benchmark source hashes. It is not a substitute for editorial or scientific review. The current regression suite has 15 tests, including independent bracketed Kepler comparisons and an RV integration check.
+The manuscript checker verifies metadata, required section headings, citation keys, image files, cross-references, approximate word count and benchmark source hashes. It is not a substitute for editorial or scientific review. The current regression suite has 19 tests when ellc is installed, including independent bracketed Kepler comparisons and an RV integration check.
 
 ## Render a local reading copy
 
@@ -66,10 +66,49 @@ docker run --rm \
 
 This should produce `paper/paper.pdf` using the journal's own templates. Check that proof, its references, equations and figures before submitting. The journal also supports an [Open Journals GitHub Action](https://github.com/openjournals/openjournals-draft-action); no remote workflow has been installed or run by this draft setup.
 
-## Replace or extend the figures
+## Numerical comparison (main Figure 1)
+
+`python paper/scripts/compare_ellc.py` generates `figures/ellc_comparison.png` and
+`.pdf`, plus `benchmarks/ellc_comparison.csv` and `.json`. It uses the geometry of
+Maxted & Gill (2019), Figure 3, and compares the **same power-2 law** in BRUCE and
+ellc; it does not use a tabulated STAGGER atmosphere profile as the reference.
+Parameters are Rstar/a=0.05, Rp/Rstar=0.1, b=0, e=0, P=1 day and instantaneous
+sampling. Both implementations use c=0.715452 and alpha=0.643777, the CHEOPS
+6000 K, log g=4.5, solar-metallicity coefficients tabulated by Maxted (2018).
+The script contains these values explicitly and does not import pycheops or
+access the network. No parameters are fitted to reduce the residuals.
+
+The reference uses ellc 1.8.15 with spherical bodies and very-fine integration.
+The maximum BRUCE/reference difference is 74.0 ppm and the RMS is 20.4 ppm.
+Ellc's fine/very-fine grid difference is at most 0.58 ppm in this case. The
+sparse/reference residual is plotted for context. The original K2 expression
+is unchanged as requested. Raw model arrays, numerical settings, versions and
+source hashes are retained. The optional independent regression test checks this
+case against ellc; it does not establish accuracy across all radii or inclinations.
+
+Finite exposures now require an odd `noversample >= 3`, with default 11, in both
+light-curve/likelihood and template-matching entry points. Explicit even values
+raise ValueError. Separate symmetry tests exercise finite exposures. Records from
+before this change remain under `benchmarks/archive/pre_odd_sampling/`.
+
+## Supplementary figures
 
 The single-panel transit-fit figure minimises the public direct C negative-log-likelihood with Nelder-Mead; `benchmarks/synthetic_c_likelihood_fit.csv` and `.json` retain its data, parameters and objective value. The original fit/residual example uses least squares.
 
-The single-panel transit-fit figure is `figures/use_cases.png` (also PDF). The original fit/residual plot remains available as `figures/synthetic_transit.png`. The earlier nightly simulation, search scores and alias checks are retained in `benchmarks/synthetic_ngts.csv`, `synthetic_template_scores.csv` and `synthetic_search.json` as supplementary draft artefacts; they are no longer plotted or regenerated by `make_figures.py`.
+The earlier single-panel transit-fit figure is retained as `figures/use_cases.png` (also PDF), but is no longer the manuscript figure. The original fit/residual plot remains available as `figures/synthetic_transit.png`. The earlier nightly simulation, search scores and alias checks are retained in `benchmarks/synthetic_ngts.csv`, `synthetic_template_scores.csv` and `synthetic_search.json` as supplementary draft artefacts; they are no longer plotted or regenerated by `make_figures.py`.
 
 Edit `scripts/make_figures.py` to change styling, or replace the corresponding files in `figures/` while retaining the labels `fig:transit` and `fig:performance` in the manuscript. A real TESS event and associated ground-based coverage would strengthen the research-use discussion. If replacing the synthetic demonstration, provide the source data identifiers, processing choices, reproducible analysis and relevant archive acknowledgements. Do not label a synthetic example as observed data.
+
+## Licence and likelihood-wrapper correction
+
+The package now uses GPL-3.0-or-later, with ellc attribution retained in the root
+`NOTICE.md`. The direct light-curve likelihood wrapper parses `offset` into an
+integer, matching the Python C API. Regression tests compare both `offset=0`
+and `offset=1` against NumPy, with jitter, eccentricity, exposure integration,
+float32 inputs and strided arrays. The normalised mode includes the
+variance-dependent logarithmic term; the additive Gaussian constant is omitted.
+The current benchmark continues to use `offset=0` for continuity with the earlier
+measurements. No post-fix speed improvement is inferred from the difference
+between these two local timing runs.
+
+For tagged releases and optional PyPI publication, see [RELEASING.md](../RELEASING.md). No tag, remote release or upload was created by this work.

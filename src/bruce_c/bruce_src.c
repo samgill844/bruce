@@ -1,3 +1,11 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later
+ * BRUCE C implementation and modifications: Copyright (C) 2026 Samuel Gill.
+ * Orbital routines adapted from ellc: Copyright (C) 2016 Pierre Maxted.
+ * Adaptation: https://github.com/pmaxted/ellc (Maxted 2016).
+ * BRUCE ports these routines to C and provides its own NumPy/OpenMP interfaces;
+ * subsequent changes include phase wrapping and the eclipse-epoch conversion.
+ * See LICENSE and NOTICE.md for licensing and attribution.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -635,25 +643,21 @@ double _lc (const double time,
     const int ld_law,
     const int accurate_tp)
 {
-  //printf("t_zero call %f\n", t_zero);
-  if (cadence>0)
+  /* Non-Python C callers receive NaN for invalid exposure sampling. */
+  if (!isfinite(cadence) || cadence < 0.) return NAN;
+  if (cadence > 0.)
   {
-    double dr = (cadence/2) / ((noversample-1)/2);
-    double model = 0. ;
-    for (int i=0; i<noversample; i++)
+    if (noversample < 3 || noversample % 2 == 0) return NAN;
+    double dr = cadence / (noversample - 1);
+    double model = 0.;
+    for (int i = 0; i < noversample; i++)
     {
-      model += __lc(time -dr*((noversample-1)/2) + i*dr,
-                    t_zero, period,
-                    radius_1, k, incl,
-                    e,w,
-                    c,alpha,
-                    cadence, noversample,
-                    light_3,
-                    ld_law,
-                    accurate_tp);
+      double offset = (i - (noversample - 1)/2) * dr;
+      model += __lc(time + offset,
+                    t_zero, period, radius_1, k, incl, e, w, c, alpha,
+                    cadence, noversample, light_3, ld_law, accurate_tp);
     }
-    model /= noversample;
-    return model;
+    return model / noversample;
   }
   else
   {

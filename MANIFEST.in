@@ -1,0 +1,3 @@
+include LICENSE NOTICE.md README.md
+include src/bruce_c/*.h
+recursive-include tests/regression *.py

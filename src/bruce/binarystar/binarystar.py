@@ -28,7 +28,7 @@ def lc(t = np.linspace(-0.2,0.2,100),flux=None, flux_err=None,
         radius_1=0.2, k = 0.2, incl=np.pi/2,
         e=0., w = np.pi/2.,
         c = 0.7, alpha = 0.4,
-        cadence=0, noversample=10,
+        cadence=0, noversample=11,
         light_3=0.,
         ld_law = 2,
         accurate_tp=1,
@@ -53,7 +53,8 @@ def lc(t = np.linspace(-0.2,0.2,100),flux=None, flux_err=None,
         c: limb darkening coefficient [power-2 law]
         alpha: limb darkening coefficient [power-2 law]
         cadence: cadence [days] [default 0]
-        noversample: oversampling factor [default 10]
+        noversample: odd exposure subsample count >= 3 [default 11];
+            required when cadence > 0. Use cadence=0 for instantaneous models.
         light_3: contaminating light (light of other sources/light of target) [default 0]
         ld_law: limb darkening law [default 2 power-2]
         -2: power-2 law [c and alpha] with only transit modelled around t_zero, ignores other cycles
@@ -65,6 +66,9 @@ def lc(t = np.linspace(-0.2,0.2,100),flux=None, flux_err=None,
             1 minimises projected separation; 0 uses the edge-on
             conjunction approximation. Both modes solve Kepler's equation.
         jitter: Jitter Value added in quadrature to flux_err.
+        offset: 1 includes the variance-dependent log term; 0 omits it.
+            The C wrapper returns negative log likelihood, without the
+            additive Gaussian normalisation constant.
         
     Returns:
         if flux is None:

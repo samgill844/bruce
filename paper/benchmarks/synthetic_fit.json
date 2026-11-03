@@ -11,9 +11,9 @@
     0.1
   ],
   "fitted": [
-    -5.745040596994899e-05,
-    0.10044434930425714,
-    0.09966371934953
+    -5.7450469435645135e-05,
+    0.10044434844262573,
+    0.09966372130652293
   ],
   "fixed": {
     "period": 3.0,
@@ -28,6 +28,6 @@
   },
   "success": true,
   "evaluations": 8,
-  "rms_ppm": 438.439149608262,
+  "rms_ppm": 438.43914980261593,
   "note": "Illustrative fit with generating model; not an independent accuracy test."
 }

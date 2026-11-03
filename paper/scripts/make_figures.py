@@ -149,4 +149,6 @@ if __name__ == '__main__':
     (PAPER / 'figures').mkdir(exist_ok=True)
     transit()
     use_cases()
+    from compare_ellc import main as compare_ellc
+    compare_ellc()
     performance()

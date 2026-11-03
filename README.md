@@ -57,7 +57,7 @@ time = np.linspace(-0.15, 0.15, 1000, dtype=np.float64)
 flux_model = bruce.binarystar.lc(
     time, t_zero=0.0, period=3.0, radius_1=0.1, k=0.1,
     incl=np.pi / 2, e=0.0, w=np.pi / 2,
-    c=0.7, alpha=0.4, cadence=2 / 1440, noversample=10,
+    c=0.7, alpha=0.4, cadence=2 / 1440, noversample=11,
 )
 rv_model = bruce.binarystar.rv1(
     time, period=3.0, K1=10.0, V0=0.0,
@@ -67,7 +67,7 @@ rv_primary, rv_secondary = bruce.binarystar.rv2(
 )
 ```
 
-`radius_1` is the stellar radius divided by the orbital semi-major axis; `k` is the companion-to-star radius ratio. `cadence` is in days. RV amplitudes and systemic velocity must share a unit. `lc`, `rv1` and `rv2` return models unless observations and their uncertainties are supplied, in which case they return the extension's likelihood statistic. **The existing C wrappers return negative log likelihood, whereas `bruce.sampler.loglike` returns log likelihood.** This convention is retained for compatibility: check the sign required by your optimiser or posterior. `offset=1` includes the variance-dependent logarithmic term; additive Gaussian constants are omitted.
+`radius_1` is the stellar radius divided by the orbital semi-major axis; `k` is the companion-to-star radius ratio. `cadence` is in days. For `cadence > 0`, `noversample` must be an odd integer of at least 3 (default 11); invalid counts raise `ValueError`. Use `cadence=0` for instantaneous evaluation. RV amplitudes and systemic velocity must share a unit. `lc`, `rv1` and `rv2` return models unless observations and their uncertainties are supplied, in which case they return the extension's likelihood statistic. **The existing C wrappers return negative log likelihood, whereas `bruce.sampler.loglike` returns log likelihood.** This convention is retained for compatibility: check the sign required by your optimiser or posterior. `offset=1` includes the variance-dependent logarithmic term; additive Gaussian constants are omitted.
 
 `accurate_tp=1` finds the eclipse epoch by minimising projected separation;
 `accurate_tp=0` uses the edge-on conjunction approximation
@@ -172,3 +172,12 @@ The old `lcmatch` console entry referenced a missing module and has been removed
 ## Scientific background
 
 The keplerian solutions and radial-velocity calculations draw upon the source code of [ellc](https://github.com/pmaxted/ellc) as described here: [Maxted (2016)](https://www.aanda.org/articles/aa/full/2016/07/aa28579-16/aa28579-16.html). The transit implementation uses the anlytical qpower2 model [Maxted and Gill 2019](https://ui.adsabs.harvard.edu/abs/2019A%26A...622A..33M/abstract). 
+
+## Licence
+
+BRUCE is open-source software licensed under the **GNU GPL version 3 or later**
+(`GPL-3.0-or-later`); see [LICENSE](LICENSE). Its orbital modelling core includes
+routines adapted from Pierre Maxted's GPL-licensed `ellc` code. Attribution and
+modification details are provided in [NOTICE.md](NOTICE.md).
+
+For versioned GitHub releases and optional PyPI publication, see [RELEASING.md](RELEASING.md).

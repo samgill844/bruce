@@ -4,11 +4,11 @@
   warnings.warn(
 running build_ext
 building 'bruce_c' extension
-creating /tmp/bruce-paper-build
-creating /tmp/bruce-paper-build/src
-creating /tmp/bruce-paper-build/src/bruce_c
-clang -Wno-unused-result -Wsign-compare -Wunreachable-code -DNDEBUG -fwrapv -O2 -Wall -fPIC -O2 -isystem /Users/sam/anaconda3/include -arch x86_64 -I/Users/sam/anaconda3/include -fPIC -O2 -isystem /Users/sam/anaconda3/include -arch x86_64 -I/Users/sam/anaconda3/lib/python3.9/site-packages/numpy/core/include -I/usr/local/opt/libomp/include -I/Users/sam/anaconda3/include/python3.9 -c src/bruce_c/bruce_numpy.c -o /tmp/bruce-paper-build/src/bruce_c/bruce_numpy.o -std=c99 -O3 -Xpreprocessor -fopenmp
-clang -Wno-unused-result -Wsign-compare -Wunreachable-code -DNDEBUG -fwrapv -O2 -Wall -fPIC -O2 -isystem /Users/sam/anaconda3/include -arch x86_64 -I/Users/sam/anaconda3/include -fPIC -O2 -isystem /Users/sam/anaconda3/include -arch x86_64 -I/Users/sam/anaconda3/lib/python3.9/site-packages/numpy/core/include -I/usr/local/opt/libomp/include -I/Users/sam/anaconda3/include/python3.9 -c src/bruce_c/bruce_src.c -o /tmp/bruce-paper-build/src/bruce_c/bruce_src.o -std=c99 -O3 -Xpreprocessor -fopenmp
-creating /tmp/bruce-paper-lib
-clang -bundle -undefined dynamic_lookup -Wl,-rpath,/Users/sam/anaconda3/lib -L/Users/sam/anaconda3/lib -L/Users/sam/anaconda3/lib -Wl,-rpath,/Users/sam/anaconda3/lib -L/Users/sam/anaconda3/lib /tmp/bruce-paper-build/src/bruce_c/bruce_numpy.o /tmp/bruce-paper-build/src/bruce_c/bruce_src.o -o /tmp/bruce-paper-lib/bruce_c.cpython-39-darwin.so -L/usr/local/opt/libomp/lib -Wl,-rpath,/usr/local/opt/libomp/lib -lomp
+creating /tmp/bruce-exposure-build
+creating /tmp/bruce-exposure-build/src
+creating /tmp/bruce-exposure-build/src/bruce_c
+clang -Wno-unused-result -Wsign-compare -Wunreachable-code -DNDEBUG -fwrapv -O2 -Wall -fPIC -O2 -isystem /Users/sam/anaconda3/include -arch x86_64 -I/Users/sam/anaconda3/include -fPIC -O2 -isystem /Users/sam/anaconda3/include -arch x86_64 -I/Users/sam/anaconda3/lib/python3.9/site-packages/numpy/core/include -I/usr/local/opt/libomp/include -I/Users/sam/anaconda3/include/python3.9 -c src/bruce_c/bruce_numpy.c -o /tmp/bruce-exposure-build/src/bruce_c/bruce_numpy.o -std=c99 -O3 -Xpreprocessor -fopenmp
+clang -Wno-unused-result -Wsign-compare -Wunreachable-code -DNDEBUG -fwrapv -O2 -Wall -fPIC -O2 -isystem /Users/sam/anaconda3/include -arch x86_64 -I/Users/sam/anaconda3/include -fPIC -O2 -isystem /Users/sam/anaconda3/include -arch x86_64 -I/Users/sam/anaconda3/lib/python3.9/site-packages/numpy/core/include -I/usr/local/opt/libomp/include -I/Users/sam/anaconda3/include/python3.9 -c src/bruce_c/bruce_src.c -o /tmp/bruce-exposure-build/src/bruce_c/bruce_src.o -std=c99 -O3 -Xpreprocessor -fopenmp
+creating /tmp/bruce-exposure-lib
+clang -bundle -undefined dynamic_lookup -Wl,-rpath,/Users/sam/anaconda3/lib -L/Users/sam/anaconda3/lib -L/Users/sam/anaconda3/lib -Wl,-rpath,/Users/sam/anaconda3/lib -L/Users/sam/anaconda3/lib /tmp/bruce-exposure-build/src/bruce_c/bruce_numpy.o /tmp/bruce-exposure-build/src/bruce_c/bruce_src.o -o /tmp/bruce-exposure-lib/bruce_c.cpython-39-darwin.so -L/usr/local/opt/libomp/lib -Wl,-rpath,/usr/local/opt/libomp/lib -lomp
 ld: warning: duplicate -rpath '/Users/sam/anaconda3/lib' ignored

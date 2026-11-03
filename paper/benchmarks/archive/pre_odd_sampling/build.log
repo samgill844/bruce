@@ -1,0 +1,14 @@
+/Users/sam/anaconda3/lib/python3.9/site-packages/setuptools/dist.py:771: UserWarning: Usage of dash-separated 'build-base' will not be supported in future versions. Please use the underscore name 'build_base' instead
+  warnings.warn(
+/Users/sam/anaconda3/lib/python3.9/site-packages/setuptools/dist.py:771: UserWarning: Usage of dash-separated 'egg-base' will not be supported in future versions. Please use the underscore name 'egg_base' instead
+  warnings.warn(
+running build_ext
+building 'bruce_c' extension
+creating /tmp/bruce-wrapper-fixed-build
+creating /tmp/bruce-wrapper-fixed-build/src
+creating /tmp/bruce-wrapper-fixed-build/src/bruce_c
+clang -Wno-unused-result -Wsign-compare -Wunreachable-code -DNDEBUG -fwrapv -O2 -Wall -fPIC -O2 -isystem /Users/sam/anaconda3/include -arch x86_64 -I/Users/sam/anaconda3/include -fPIC -O2 -isystem /Users/sam/anaconda3/include -arch x86_64 -I/Users/sam/anaconda3/lib/python3.9/site-packages/numpy/core/include -I/usr/local/opt/libomp/include -I/Users/sam/anaconda3/include/python3.9 -c src/bruce_c/bruce_numpy.c -o /tmp/bruce-wrapper-fixed-build/src/bruce_c/bruce_numpy.o -std=c99 -O3 -Xpreprocessor -fopenmp
+clang -Wno-unused-result -Wsign-compare -Wunreachable-code -DNDEBUG -fwrapv -O2 -Wall -fPIC -O2 -isystem /Users/sam/anaconda3/include -arch x86_64 -I/Users/sam/anaconda3/include -fPIC -O2 -isystem /Users/sam/anaconda3/include -arch x86_64 -I/Users/sam/anaconda3/lib/python3.9/site-packages/numpy/core/include -I/usr/local/opt/libomp/include -I/Users/sam/anaconda3/include/python3.9 -c src/bruce_c/bruce_src.c -o /tmp/bruce-wrapper-fixed-build/src/bruce_c/bruce_src.o -std=c99 -O3 -Xpreprocessor -fopenmp
+creating /tmp/bruce-wrapper-fixed-lib
+clang -bundle -undefined dynamic_lookup -Wl,-rpath,/Users/sam/anaconda3/lib -L/Users/sam/anaconda3/lib -L/Users/sam/anaconda3/lib -Wl,-rpath,/Users/sam/anaconda3/lib -L/Users/sam/anaconda3/lib /tmp/bruce-wrapper-fixed-build/src/bruce_c/bruce_numpy.o /tmp/bruce-wrapper-fixed-build/src/bruce_c/bruce_src.o -o /tmp/bruce-wrapper-fixed-lib/bruce_c.cpython-39-darwin.so -L/usr/local/opt/libomp/lib -Wl,-rpath,/usr/local/opt/libomp/lib -lomp
+ld: warning: duplicate -rpath '/Users/sam/anaconda3/lib' ignored

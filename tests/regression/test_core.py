@@ -27,6 +27,67 @@ class CoreTests(unittest.TestCase):
             # The low-level extension historically returns negative log L.
             self.assertAlmostEqual(bruce_c.loglike(y, err, model, 0., 0.), expected)
 
+    def test_lc_likelihood_matches_numpy(self):
+        # Exercise the integer offset parsed by lc_loglike, including its
+        # variance term, jitter, exposure integration and converted views.
+        for dtype in [np.float32, np.float64]:
+            time = np.repeat(np.linspace(-.15, .15, 101).astype(dtype), 2)[::2]
+            error = np.repeat(np.linspace(.0007, .0013, 101).astype(dtype), 2)[::2]
+            for eccentricity, cadence in [(0., 0.), (.4, 2 / 1440)]:
+                parameters = dict(period=3., radius_1=.1, k=.1,
+                                  incl=np.arccos(.03), e=eccentricity,
+                                  w=.7, accurate_tp=0, cadence=cadence,
+                                  noversample=11)
+                model = bruce.binarystar.lc(time, **parameters)
+                observed = (model + .0002 * np.sin(np.arange(time.size))).astype(dtype)
+                observed = np.repeat(observed, 2)[::2]
+                for jitter in [0., .0003]:
+                    variance = error.astype(float)**2 + jitter**2
+                    residual = observed.astype(float) - model
+                    for offset in [0, 1]:
+                        with self.subTest(dtype=dtype, e=eccentricity,
+                                          jitter=jitter, offset=offset):
+                            expected = .5 * np.sum(residual**2 / variance +
+                                                   offset * np.log(variance))
+                            actual = bruce.binarystar.lc(
+                                time, observed, error, jitter=jitter,
+                                offset=offset, **parameters)
+                            assert_allclose(actual, expected, rtol=1e-12, atol=1e-8)
+
+    def test_exposure_sampling_validation(self):
+        time = np.linspace(-.1, .1, 21)
+        flux, error = np.ones(21), np.full(21, .001)
+        for samples in [-1, 0, 1, 2, 10]:
+            with self.subTest(samples=samples):
+                for observed in [False, True]:
+                    with self.assertRaisesRegex(ValueError, "odd integer >= 3"):
+                        bruce.binarystar.lc(
+                            time, flux if observed else None,
+                            error if observed else None,
+                            cadence=2 / 1440, noversample=samples)
+                for radius in [.1, np.array([.1])]:
+                    with self.assertRaisesRegex(ValueError, "odd integer >= 3"):
+                        bruce.template_match.template_match_lightcurve(
+                            time, flux, error, flux, radius_1=radius,
+                            time_trial=np.array([0.]), cadence=2 / 1440,
+                            noversample=samples)
+        for cadence in [-1., np.nan, np.inf]:
+            with self.assertRaisesRegex(ValueError, "cadence"):
+                bruce.binarystar.lc(time, cadence=cadence)
+
+    def test_integrated_transit_is_symmetric(self):
+        time = np.linspace(.035, .065, 101)
+        parameters = dict(period=3., radius_1=.1, k=.1,
+                          incl=np.arccos(.03), e=0., w=np.pi/2,
+                          accurate_tp=0, cadence=2/1440)
+        for samples in [3, 11, 21]:
+            positive = bruce.binarystar.lc(time, noversample=samples, **parameters)
+            negative = bruce.binarystar.lc(-time, noversample=samples, **parameters)
+            assert_allclose(positive, negative, rtol=0., atol=1e-12)
+        # The public default must also be valid for non-zero exposures.
+        assert_allclose(bruce.binarystar.lc(time, **parameters),
+                        bruce.binarystar.lc(time, noversample=11, **parameters))
+
     def test_c_rejects_invalid_shapes(self):
         with self.assertRaises(ValueError):
             bruce_c.loglike(np.ones(2), np.ones(3), np.ones(2), 0., 0.)

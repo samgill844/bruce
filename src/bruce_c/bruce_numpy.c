@@ -14,6 +14,20 @@
 
 #define N_BIN_MAX 10000
 
+/* Require a centred exposure grid with a midpoint sample. */
+static int validate_exposure_sampling(double cadence, int noversample) {
+    if (!isfinite(cadence) || cadence < 0.) {
+        PyErr_SetString(PyExc_ValueError, "cadence must be finite and non-negative");
+        return 0;
+    }
+    if (cadence > 0. && (noversample < 3 || noversample % 2 == 0)) {
+        PyErr_SetString(PyExc_ValueError,
+                        "noversample must be an odd integer >= 3 when cadence > 0");
+        return 0;
+    }
+    return 1;
+}
+
 // loglike function implementation with OpenMP
 static PyObject* loglike(PyObject* self, PyObject* args) {
     PyArrayObject *y = NULL, *yerr = NULL, *model = NULL;
@@ -78,6 +92,8 @@ static PyObject* lc(PyObject* self, PyObject* args) {
                           &noversample, &light_3, &ld_law, &accurate_tp)) {
         return NULL;  // Parsing failed
     }
+    if (!validate_exposure_sampling(cadence, noversample)) return NULL;
+
 
     // Ensure the time array is of type double and contiguous
     PyArrayObject *time_cast = (PyArrayObject *)PyArray_FromAny(
@@ -295,8 +311,8 @@ static PyObject* xyzz(PyObject* self, PyObject* args) {
 
 static PyObject* lc_loglike(PyObject* self, PyObject* args) {
     PyArrayObject *time_array = NULL, *flux_array = NULL, *flux_err_array = NULL;
-    double t_zero, period, radius_1, k, incl, e, w, c, alpha, cadence, light_3, jitter, offset;
-    int noversample, ld_law, accurate_tp;
+    double t_zero, period, radius_1, k, incl, e, w, c, alpha, cadence, light_3, jitter;
+    int noversample, ld_law, accurate_tp, offset;
 
     // Parse Python arguments
     if (!PyArg_ParseTuple(args, "O!O!O!ddddddddddidiidi",
@@ -309,6 +325,8 @@ static PyObject* lc_loglike(PyObject* self, PyObject* args) {
                           &jitter, &offset)) {
         return NULL;  // Parsing failed
     }
+    if (!validate_exposure_sampling(cadence, noversample)) return NULL;
+
 
     // Ensure the input arrays are of type double and contiguous
     // PyArrayObject *time_cast = NULL, *flux_cast = NULL, *flux_err_cast = NULL;
@@ -1168,6 +1186,8 @@ static PyObject *template_match_reduce(PyObject *self, PyObject *args)
                                                         &jitter, &offset )) {
         return NULL;
     }
+    if (!validate_exposure_sampling(cadence, noversample)) return NULL;
+
 
     // printf("I parsed");
     // fflush(stdout);
@@ -1273,6 +1293,8 @@ static PyObject *template_match_batch_reduce(PyObject *self, PyObject *args)
                                                         &jitter, &offset )) {
         return NULL;
     }
+    if (!validate_exposure_sampling(cadence, noversample)) return NULL;
+
 
     // printf("I parsed");
     // fflush(stdout);

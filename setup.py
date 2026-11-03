@@ -42,6 +42,8 @@ bruce_c_module = Extension(
 setup(
     name="bruce",
     version="1.0.0",
+    license="GPL-3.0-or-later",
+    license_files=["LICENSE", "NOTICE.md"],
     description="A fast-as-hell binary star model using NumPy-C API with OpenMP",
     packages=find_packages(where="src"),
     package_dir={"": "src"},

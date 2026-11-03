@@ -1,0 +1,40 @@
+{
+  "geometry": {
+    "radius_1": 0.05,
+    "k": 0.1,
+    "impact_parameter": 0.0,
+    "e": 0.0,
+    "period_days": 1.0,
+    "t_zero": 0.0,
+    "exposure_days": 0.0
+  },
+  "power2": {
+    "c": 0.715452,
+    "alpha": 0.643777,
+    "passband": "CHEOPS",
+    "coefficient_source": "Maxted (2018), CDS J/A+A/616/A39/table2",
+    "teff_K": 6000,
+    "logg": 4.5,
+    "metallicity": 0.0
+  },
+  "samples": 1001,
+  "phase_limits": [
+    -0.00963373523458631,
+    0.00963373523458631
+  ],
+  "reference": "ellc, spherical bodies, power-2 law, very_fine grids",
+  "max_absolute_residual_ppm": 74.00127991530337,
+  "rms_residual_ppm": 20.35702954350151,
+  "mean_residual_ppm": -8.369015812412178,
+  "max_fine_minus_very_fine_ppm": 0.5796353684806022,
+  "max_sparse_minus_very_fine_ppm": 14.51215102887815,
+  "numpy": "1.26.4",
+  "ellc": "1.8.15",
+  "extension": "/tmp/bruce-exposure-lib/bruce_c.cpython-39-darwin.so",
+  "source_sha256": {
+    "paper/scripts/compare_ellc.py": "1ec2baaab8ed4db4b5ba3a7c8c03e6760fa7d68d3c9e8adc1aa257269fff9704",
+    "src/bruce_c/bruce_src.c": "76878f6fe609d6445ab919fe6d45273500b99f13ac5d4c1724ac0ec608628552",
+    "src/bruce_c/bruce_numpy.c": "1c2c14a492602a636f1c197a13cc5a4a892ef1811b5859f32e7ac068fdeb60ef"
+  },
+  "scope": "Matched-law comparison inspired by Fig. 3 of Maxted & Gill (2019); not a reproduction of the published STAGGER-profile reference. No parameters are fitted or adjusted to reduce residuals. The K2 expression in BRUCE is unchanged."
+}
