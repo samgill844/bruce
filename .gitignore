@@ -38,3 +38,5 @@ mastDownload/
 /src/bruce_c/simd/avx_loglike
 /src/bruce_c/simd/simd_example
 /src/bruce_c/simd/timing_aligned
+
+sync.sh
