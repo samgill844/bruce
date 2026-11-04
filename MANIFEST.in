@@ -1,3 +1,7 @@
 include LICENSE NOTICE.md README.md
 include src/bruce_c/*.h
 recursive-include tests/regression *.py
+
+include CONTRIBUTING.md RELEASING.md
+recursive-include docs *.rst *.md *.py *.txt *.css *.png *.gif
+prune docs/_build

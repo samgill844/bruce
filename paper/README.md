@@ -1,17 +1,17 @@
 # BRUCE JOSS manuscript
 
-This directory contains a first author draft for the *Journal of Open Source Software*. The manuscript follows the current [JOSS paper format](https://joss.readthedocs.io/en/latest/paper.html): YAML metadata, a short research-software article and the required substantive sections. It is approximately 1,748 words including figure captions, The current JOSS target is 750–1,750 words; run the checker after editing.
+This directory contains a first author draft for the *Journal of Open Source Software*. The manuscript follows the current [JOSS paper format](https://joss.readthedocs.io/en/latest/paper.html): YAML metadata, a short research-software article and the required substantive sections. It is approximately 1,675 words including figure captions. The current JOSS target is 750–1,750 words; run the checker after editing.
 
 ## Main files
 
 - [paper.md](paper.md): the editable JOSS manuscript, with Samuel Gill's supplied name, affiliation and ORCID.
 - [paper.bib](paper.bib): 20 literature/software references with DOI or source links and full journal names.
 - [output/paper-preview.pdf](output/paper-preview.pdf): locally typeset reading copy. This is **not the official JOSS proof**.
-- [figures/](figures/): a two-panel matched-law BRUCE/ellc comparison and a measured likelihood-throughput figure, supplied as PNG and vector PDF.
+- [figures/](figures/): a two-panel matched-law BRUCE/ellc comparison and a combined likelihood-throughput/SPOCFIT figure, supplied as PNG and PDF.
 - [benchmarks/results.json](benchmarks/results.json): raw timing repetitions, settings, source hashes and machine details.
 - [benchmarks/synthetic_transit.csv](benchmarks/synthetic_transit.csv) and [synthetic_fit.json](benchmarks/synthetic_fit.json): reproducible demonstration data and fitted parameters.
 
-The main figure compares BRUCE with numerical integration of the identical power-2 law in ellc. Supplementary synthetic transits are generated and fitted with BRUCE itself. The template-search and alias-resolution use cases are illustrated by references to published recovery studies. It demonstrates a workflow; it is not an independent test of transit physics. No actual astronomical target or survey result is claimed. The comparison is instantaneous and covers one specified geometry; it is not a global error bound. The benchmark compares BRUCE operations/thread counts, not competing software.
+The main figure compares BRUCE with numerical integration of the identical power-2 law in ellc. Supplementary synthetic transits are generated and fitted with BRUCE itself. The template-search and alias-resolution use cases are illustrated by references to published recovery studies. It demonstrates a workflow; it is not an independent test of transit physics. Figure 2 includes a screenshot of real TESS photometry for TIC 100504488; no new target characterisation or survey result is claimed. The comparison is instantaneous and covers one specified geometry; it is not a global error bound. The benchmark compares BRUCE operations/thread counts, not competing software.
 
 ## Reproduce the measurements and figures
 
@@ -24,7 +24,7 @@ PYTHONPATH=/tmp/bruce-paper-lib:src MPLCONFIGDIR=/tmp/bruce-paper-mpl OMP_NUM_TH
 python paper/scripts/check_paper.py
 ```
 
-The recorded draft measurements were made on 3 November 2026 with Apple Clang 21.0.0 and OpenMP, using the options in [benchmarks/build.log](benchmarks/build.log). The benchmark driver launches separate worker processes with one and four OpenMP threads, disables dynamic OpenMP team sizing and limits BLAS threads. Each operation is warmed up, batch sizes are calibrated, and seven repeated batches are retained. The performance figure shows reciprocal median call times for the direct C likelihood, with bounds from the reciprocal timing quartiles; the right panel shows one-thread/four-thread timing ratios. Each evaluation includes the complete light curve and likelihood reduction. Timing covers public Python wrapper calls and their numerical work, but excludes imports, construction of input arrays, file/network I/O and optimiser execution. The combined likelihood path is checked against a NumPy reduction before timings are accepted.
+The recorded draft measurements were made on 3 November 2026 with Apple Clang 21.0.0 and OpenMP, using the options in [benchmarks/build.log](benchmarks/build.log). The benchmark driver launches separate worker processes with one and four OpenMP threads, disables dynamic OpenMP team sizing and limits BLAS threads. Each operation is warmed up, batch sizes are calibrated, and seven repeated batches are retained. The left panel of Figure 2 shows reciprocal median call times for the direct C likelihood, with bounds from the reciprocal timing quartiles. The right panel uses the author-supplied screenshot at `docs/_static/cli/spocfit.png`, showing TIC 100504488 in TESS sector 27. Four-thread measurements remain in the raw data and manuscript text. Each evaluation includes the complete light curve and likelihood reduction. Timing covers public Python wrapper calls and their numerical work, but excludes imports, construction of input arrays, file/network I/O and optimiser execution. The combined likelihood path is checked against a NumPy reduction before timings are accepted.
 
 All cases use `period=3` days, `radius_1=0.1`, `k=0.1`, `incl=arccos(0.03)`, `w=0.7`, `c=0.7`, `alpha=0.4`, no third light, fixed flux errors of 0.001, zero jitter, `offset=0` and `accurate_tp=0`. Times span −0.15 to +0.15 days. The cases are instantaneous circular motion, instantaneous eccentric motion (`e=0.4`), and circular motion integrated over 2 minutes with 11 subsamples. The seed is 42. Re-running overwrites the raw results, so update numerical claims in `paper.md` if the results change.
 
@@ -39,7 +39,7 @@ python paper/scripts/check_paper.py
 PYTHONPATH=/tmp/bruce-paper-lib:src MPLCONFIGDIR=/tmp/bruce-paper-mpl OMP_NUM_THREADS=1 python -m unittest discover -s tests/regression -v
 ```
 
-The manuscript checker verifies metadata, required section headings, citation keys, image files, cross-references, approximate word count and benchmark source hashes. It is not a substitute for editorial or scientific review. The current regression suite has 19 tests when ellc is installed, including independent bracketed Kepler comparisons and an RV integration check.
+The manuscript checker verifies metadata, required section headings, citation keys, image files, cross-references, approximate word count and benchmark source hashes. It is not a substitute for editorial or scientific review. The current regression suite has 21 tests when ellc is installed, including independent bracketed Kepler comparisons and an RV integration check.
 
 ## Render a local reading copy
 
@@ -64,7 +64,7 @@ docker run --rm \
   openjournals/inara
 ```
 
-This should produce `paper/paper.pdf` using the journal's own templates. Check that proof, its references, equations and figures before submitting. The journal also supports an [Open Journals GitHub Action](https://github.com/openjournals/openjournals-draft-action); no remote workflow has been installed or run by this draft setup.
+This should produce `paper/paper.pdf` using the journal's own templates. Check that proof, its references, equations and figures before submitting. The journal also supports an [Open Journals GitHub Action](https://github.com/openjournals/openjournals-draft-action); the workflow in `.github/workflows/paper.yml` builds `paper/paper.md` and uploads the official-toolchain PDF as an artifact. It has not yet run remotely; check its result after pushing.
 
 ## Numerical comparison (main Figure 1)
 
@@ -112,3 +112,7 @@ measurements. No post-fix speed improvement is inferred from the difference
 between these two local timing runs.
 
 For tagged releases and optional PyPI publication, see [RELEASING.md](../RELEASING.md). No tag, remote release or upload was created by this work.
+
+## Final preparation record
+
+See [SUBMISSION_CHECKLIST.md](SUBMISSION_CHECKLIST.md) for checks completed on 4 November 2026, remaining author confirmations, and the official-build workflow.

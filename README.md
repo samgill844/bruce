@@ -44,7 +44,7 @@ export OMP_NUM_THREADS=1
 | `bruce.empirical_relations` | Planet mass–radius estimates and the implemented inverse relation. |
 | `bruce.visual` | Orbit animation with optional GIF export. |
 
-See the [function and class catalogue](docs/API.md) for all public Python definitions, including methods and functions accessed through submodules. Existing spellings such as `phase_disperison`, `intilise_and_run_sampler` and `calcualte_aliases` remain part of the API.
+See the [Sphinx API reference](docs/index.rst) for the documented core functions and their arguments. Existing spellings such as `phase_disperison`, `intilise_and_run_sampler` and `calcualte_aliases` remain part of the API.
 
 ## Model a transit or radial velocities
 
@@ -135,7 +135,7 @@ The second statistic array is currently zero-filled because its C calculation is
 
 ## TESS, fitting and period aliases
 
-`bruce.ambiguous_period.download_tess_data` retrieves TESS photometry; its options select sectors, SPOC/FFI products, download location and binning. Inspect its signature before a large download. `photometry_time_series` provides loading/writing, normalisation, transit fitting and plotting. `mono_event` fits an individual event at a fixed trial period. `ambiguous_period` combines events and coverage to investigate aliases, include stellar-density constraints, plot solutions and plan follow-up observations. Examples are in [examples](examples/); notebooks can contain target-specific files and paths.
+`bruce.ambiguous_period.download_tess_data` retrieves TESS photometry; its options select sectors, SPOC/FFI products, download location and binning. Inspect its signature before a large download. `photometry_time_series` provides loading/writing, normalisation, transit fitting and plotting. `mono_event` fits an individual event at a fixed trial period. `ambiguous_period` combines events and coverage to investigate aliases, include stellar-density constraints, plot solutions and plan follow-up observations. Runnable examples and command-line guides are in [docs](docs/index.rst).
 
 `bruce.sampler` supplies uniform, normal and bounded-normal priors, eccentricity and limb-darkening transforms, `intilise_and_run_sampler`, posterior summaries and corner plots. Its Python likelihood sums finite pointwise contributions and retains the historical policy of ignoring non-finite contributions; validate and mask observations explicitly before scientific fitting.
 
@@ -171,7 +171,7 @@ The old `lcmatch` console entry referenced a missing module and has been removed
 
 ## Scientific background
 
-The keplerian solutions and radial-velocity calculations draw upon the source code of [ellc](https://github.com/pmaxted/ellc) as described here: [Maxted (2016)](https://www.aanda.org/articles/aa/full/2016/07/aa28579-16/aa28579-16.html). The transit implementation uses the anlytical qpower2 model [Maxted and Gill 2019](https://ui.adsabs.harvard.edu/abs/2019A%26A...622A..33M/abstract). 
+The Keplerian solutions and radial-velocity calculations draw upon the source code of [ellc](https://github.com/pmaxted/ellc) as described here: [Maxted (2016)](https://www.aanda.org/articles/aa/full/2016/07/aa28579-16/aa28579-16.html). The transit implementation uses the analytical qpower2 model [Maxted and Gill 2019](https://ui.adsabs.harvard.edu/abs/2019A%26A...622A..33M/abstract).
 
 ## Licence
 
@@ -193,3 +193,7 @@ python -m http.server 8000 --directory docs/_build/html
 ```
 
 Open <http://localhost:8000>. BRUCE must be installed to run the example scripts; the HTML build itself reads the committed documentation and images. See [the build guide](docs/building.rst) to regenerate examples and API signatures.
+
+## Contributing and support
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines, test commands and how to report issues or request help.

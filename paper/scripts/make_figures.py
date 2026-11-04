@@ -69,7 +69,8 @@ def transit():
 def performance():
     data = json.loads((PAPER / 'benchmarks/results.json').read_text())
     rows = data['rows']
-    fig, axes = plt.subplots(1, 2, figsize=(6.5, 2.8), constrained_layout=True)
+    fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.3), constrained_layout=True,
+                             gridspec_kw={'width_ratios': [1, 1.65]})
     for case, label, colour in [('circular', r'$e=0$, instantaneous', '#185b87'),
                                 ('eccentric', r'$e=0.4$, instantaneous', '#b66a18'),
                                 ('integrated', r'$e=0$, 11 subsamples', '#6c5495')]:
@@ -83,19 +84,15 @@ def performance():
         axes[0].fill_between(size, 1 / np.percentile(values, 75, axis=1),
                              1 / np.percentile(values, 25, axis=1),
                              color=colour, alpha=.15)
-        parallel = sorted([r for r in rows if r['case'] == case and
-                           r['operation'] == 'fused_nll' and r['threads'] == 4],
-                          key=lambda r: r['size'])
-        speedup = median / np.array([np.median(r['seconds_per_call']) for r in parallel])
-        axes[1].semilogx(size, speedup, 'o-', label=label, color=colour, ms=4)
     axes[0].set(xlabel='Samples per model', ylabel='Likelihood evaluations per second',
                 title='Direct C likelihood, one thread')
-    axes[1].axhline(1, color='.6', lw=.8, ls=':')
-    axes[1].set(xlabel='Samples per model', ylabel='One-thread / four-thread time',
-                title='Measured parallel speed-up')
-    axes[0].legend(frameon=False, fontsize=8)
+    screenshot = PAPER.parent / 'docs/_static/cli/spocfit.png'
+    axes[1].imshow(plt.imread(screenshot))
+    axes[1].set_axis_off()
+    axes[1].set_title('(b) SPOCFIT: interactive TESS analysis')
+    axes[0].set_title('(a) Direct C likelihood, one thread')
+    axes[0].legend(frameon=False, fontsize=7.5)
     axes[0].grid(alpha=.15)
-    axes[1].grid(alpha=.15)
     save(fig, 'performance')
 
 

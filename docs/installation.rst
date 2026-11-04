@@ -21,6 +21,14 @@ This installs the current default branch; once a release tag exists, append
 ``@v1.0.0`` to the Git URL to pin that release. Do not use ``pip install bruce``:
 the PyPI project with that name is unrelated.
 
+For the interactive ``spocfit`` and ``tesstpf`` programs, install both extras:
+
+.. code-block:: bash
+
+   python -m pip install 'bruce[analysis,gui] @ git+https://github.com/samgill844/bruce.git'
+
+See :doc:`cli/index` for worked command-line examples.
+
 OpenMP
 ------
 

@@ -1,3 +1,30 @@
+def load_spoc_fits(filename):
+    """Load a local SPOCFIT/TPF working table with TICID and SECTOR headers.
+
+    Returns (table, tic_id, sector). Times remain in BTJD, matching the GUI.
+    This loader does not retrieve data or import graphical dependencies.
+    """
+    import numpy as np
+    from astropy.io import fits
+    from astropy.table import Table
+
+    with fits.open(filename) as hdus:
+        header = hdus[0].header
+        if 'TICID' not in header or 'SECTOR' not in header:
+            raise ValueError('Local photometry requires TICID and SECTOR primary headers')
+        tic_id, sector = int(header['TICID']), int(header['SECTOR'])
+    table = Table.read(filename, hdu=1)
+    required = {'TIME', 'SAP_FLUX', 'PDCSAP_FLUX', 'PDCSAP_FLUX_ERR',
+                'SAP_BKG', 'SAP_BKG_ERR'}
+    missing = required - set(table.colnames)
+    if missing:
+        raise ValueError('Local photometry is missing columns: ' + ', '.join(sorted(missing)))
+    if not len(table) or not np.all(np.isfinite(table['TIME'])):
+        raise ValueError('Local photometry requires non-empty, finite TIME values')
+    table.sort('TIME')
+    return table, tic_id, sector
+
+
 def main():
 
 
@@ -5,7 +32,7 @@ def main():
     from opcode import hasconst
     from statistics import median
     from tkinter import E
-    from pyqtgraph.Qt import QtGui, QtCore
+    from pyqtgraph.Qt import QtGui, QtCore, QtWidgets
     import numpy as np, sys, os, pyqtgraph as pg, bruce
     from astropy.table import Table, vstack, Column
     from scipy.stats import median_abs_deviation
@@ -77,7 +104,7 @@ def main():
 
             # Create the GUI
             self.app = pg.mkQApp("SPOCFIT") 
-            self.win = QtGui.QMainWindow()
+            self.win = QtWidgets.QMainWindow()
             # Enable dock nesting and set modern Fusion style + theme toggle
             try:
                 self.win.setDockNestingEnabled(True)
@@ -243,7 +270,7 @@ def main():
             self.gradsplitText = QLineEdit(str(self.gradsplit))
             self.button_view.addWidget(self.gradsplitText, row=0, col=1)
 
-            self.gradsplitBtn = QtGui.QPushButton('GO')
+            self.gradsplitBtn = QtWidgets.QPushButton('GO')
             self.button_view.addWidget(self.gradsplitBtn, row=0, col=2)
             self.gradsplitBtn.clicked.connect(self.resegment_data)
 
@@ -268,7 +295,7 @@ def main():
             self.fitted_parameters_view.addWidget(self.SG_window_text, row=1, col=1)
 
             # Finally, ad the go button
-            self.normBtn = QtGui.QPushButton('GO')
+            self.normBtn = QtWidgets.QPushButton('GO')
             self.fitted_parameters_view.addWidget(self.normBtn, row=1, col=2)
             self.normBtn.clicked.connect(self.renormalise_data)
 
@@ -290,17 +317,17 @@ def main():
             self.write_data_view.addWidget(self.write_data_prefix, row=0, col=1,  rowspan=1, colspan=2)
 
             # Add the fits file writeout
-            self.write_fits_Btn = QtGui.QPushButton('FITS')
+            self.write_fits_Btn = QtWidgets.QPushButton('FITS')
             self.write_data_view.addWidget(self.write_fits_Btn, row=1, col=0)
             self.write_fits_Btn.clicked.connect(self.write_fits_data)
 
             # Add the flux file writeout
-            self.write_flux_Btn = QtGui.QPushButton('FLUX')
+            self.write_flux_Btn = QtWidgets.QPushButton('FLUX')
             self.write_data_view.addWidget(self.write_flux_Btn, row=1, col=1)
             self.write_flux_Btn.clicked.connect(self.write_flux_data)
 
             # Now add the mag write out
-            self.write_mag_Btn = QtGui.QPushButton('MAG')
+            self.write_mag_Btn = QtWidgets.QPushButton('MAG')
             self.write_data_view.addWidget(self.write_mag_Btn, row=1, col=2)
             self.write_mag_Btn.clicked.connect(self.write_mag_data)
 
@@ -319,7 +346,7 @@ def main():
             self.save_plot_view.addWidget(self.save_plot_prefix, row=0, col=1)
     
             # Finally, ad the go button
-            self.save_plot_Btn = QtGui.QPushButton('SAVE PLOT')
+            self.save_plot_Btn = QtWidgets.QPushButton('SAVE PLOT')
             self.save_plot_view.addWidget(self.save_plot_Btn, row=1, col=0,colspan=2)
             self.save_plot_Btn.clicked.connect(self.save_plot)
 
@@ -387,12 +414,12 @@ def main():
 
 
             # Finally, ad the go button
-            self.generate_lc_Btn = QtGui.QPushButton('GENERATE MODEL')
+            self.generate_lc_Btn = QtWidgets.QPushButton('GENERATE MODEL')
             self.lc_parameters_view.addWidget(self.generate_lc_Btn, row=7, col=0, colspan=2)
             self.generate_lc_Btn.clicked.connect(self.generate_lc_model)
 
             # Finally, ad the clear button
-            self.clear_lc_Btn = QtGui.QPushButton('CLEAR MODEL')
+            self.clear_lc_Btn = QtWidgets.QPushButton('CLEAR MODEL')
             self.lc_parameters_view.addWidget(self.clear_lc_Btn, row=7, col=2, colspan=2)
             self.clear_lc_Btn.clicked.connect(self.clear_lc_model)
 
@@ -413,16 +440,16 @@ def main():
             # self.lc_stellar_view.addWidget(QLabel(text='Tmag'), row=0, col=2)
             # self.stellar_pars_Tmag = QLineEdit()
             # self.lc_stellar_view.addWidget(self.stellar_pars_Tmag, row=0, col=3)
-            self.stellar_pars_tic_reload_Btn = QtGui.QPushButton('Reload')
+            self.stellar_pars_tic_reload_Btn = QtWidgets.QPushButton('Reload')
             self.lc_stellar_view.addWidget(self.stellar_pars_tic_reload_Btn, row=0, col=3)
             self.stellar_pars_tic_reload_Btn.clicked.connect(self.reload_tic_data)
 
 
-            self.stellar_pars_tic_qry_Btn = QtGui.QPushButton('QUERY PARAMETERS')
+            self.stellar_pars_tic_qry_Btn = QtWidgets.QPushButton('QUERY PARAMETERS')
             self.lc_stellar_view.addWidget(self.stellar_pars_tic_qry_Btn, row=1, col=0, colspan=2)
             self.stellar_pars_tic_qry_Btn.clicked.connect(self.query_tic_params)
 
-            self.stellar_pars_ld_interp_Btn = QtGui.QPushButton('INTERP LD')
+            self.stellar_pars_ld_interp_Btn = QtWidgets.QPushButton('INTERP LD')
             self.lc_stellar_view.addWidget(self.stellar_pars_ld_interp_Btn, row=1, col=2, colspan=2)
             self.stellar_pars_ld_interp_Btn.clicked.connect(self.interp_ld_pars)
 
@@ -515,7 +542,7 @@ def main():
 
 
             # Now add the fit button
-            self.fit_lc_Btn = QtGui.QPushButton('FIT')
+            self.fit_lc_Btn = QtWidgets.QPushButton('FIT')
             self.fitting_view.addWidget(self.fit_lc_Btn, row=4, col=0)
             self.fit_lc_Btn.clicked.connect(self.fit_lightcurve)
 
@@ -528,15 +555,15 @@ def main():
             self.results_box = QPlainTextEdit('Results will appear here')
             self.fitting_view.addWidget(self.results_box, row=5, col=0, colspan=5, rowspan=4)
 
-            self.fit_lc_write_Btn = QtGui.QPushButton('WRITE')
+            self.fit_lc_write_Btn = QtWidgets.QPushButton('WRITE')
             self.fitting_view.addWidget(self.fit_lc_write_Btn, row=5, col=5)
             self.fit_lc_write_Btn.clicked.connect(self.write_results)
 
-            #self.fit_lc_chains_Btn = QtGui.QPushButton('CHAINS')
+            #self.fit_lc_chains_Btn = QtWidgets.QPushButton('CHAINS')
             #self.fitting_view.addWidget(self.fit_lc_chains_Btn, row=6, col=5)
             #self.fit_lc_chains_Btn.clicked.connect(self.plot_chains)
 
-            self.fit_lc_corner_Btn = QtGui.QPushButton('CORNER')
+            self.fit_lc_corner_Btn = QtWidgets.QPushButton('CORNER')
             self.fitting_view.addWidget(self.fit_lc_corner_Btn, row=7, col=5)
             self.fit_lc_corner_Btn.clicked.connect(self.plot_corner)
 
@@ -1010,29 +1037,38 @@ def main():
 
 
         def load_data(self, tic_id , sector=None):
-            data_table, data, data_labels, base_dir = bruce.ambiguous_period.data_retrieval.download_tess_data(tic_id, use_ffi=True, sector=sector)
+            if os.path.isfile(str(tic_id)):
+                self.data, _, local_sector = load_spoc_fits(tic_id)
+                self.sector_info = [{
+                    'sector': 'Sector {} (local photometry)'.format(local_sector),
+                    'tmin': float(np.min(self.data['TIME'])),
+                    'tmax': float(np.max(self.data['TIME'])),
+                    'sector_max': float(np.max(self.data['PDCSAP_FLUX'])),
+                }]
+            else:
+                data_table, data, data_labels, base_dir = bruce.ambiguous_period.data_retrieval.download_tess_data(tic_id, use_ffi=True, sector=sector)
 
-            self.data = Table() 
-            self.data.add_column(Column(np.concatenate( [i.time-2457000.0 for i in data]  ), name='TIME'))
-            self.data.add_column(Column(np.concatenate( [i.flux/np.median(i.flux) for i in data]  ), name='SAP_FLUX'))
-            self.data.add_column(Column(np.concatenate( [i.flux/np.median(i.flux)  for i in data]  ), name='PDCSAP_FLUX'))
-            self.data.add_column(Column(np.concatenate( [i.flux_err/np.median(i.flux)  for i in data]  ), name='PDCSAP_FLUX_ERR'))
-            self.data.add_column(Column(np.concatenate( [i.sky_bkg for i in data]  ), name='SAP_BKG'))
-            self.data.add_column( np.ones(len(self.data))*median_abs_deviation(self.data['SAP_BKG']), name='SAP_BKG_ERR')
+                self.data = Table()
+                self.data.add_column(Column(np.concatenate( [i.time-2457000.0 for i in data]  ), name='TIME'))
+                self.data.add_column(Column(np.concatenate( [i.flux/np.median(i.flux) for i in data]  ), name='SAP_FLUX'))
+                self.data.add_column(Column(np.concatenate( [i.flux/np.median(i.flux)  for i in data]  ), name='PDCSAP_FLUX'))
+                self.data.add_column(Column(np.concatenate( [i.flux_err/np.median(i.flux)  for i in data]  ), name='PDCSAP_FLUX_ERR'))
+                self.data.add_column(Column(np.concatenate( [i.sky_bkg for i in data]  ), name='SAP_BKG'))
+                self.data.add_column( np.ones(len(self.data))*median_abs_deviation(self.data['SAP_BKG']), name='SAP_BKG_ERR')
 
-            # bind the labels
-            self.sector_info = [] 
-            for i in range(len(data)):
-                self.sector_info.append({'sector' : data_labels[i] + ' (' + data_table['Source'][i] + ')', 
-                                         'tmin' : data[i].time[0]-2457000.0, 
-                                         'tmax' : data[i].time[-1]-2457000.0, 
-                                         'sector_max' :  1 + 5*np.std(data[i].flux/np.median(data[i].flux))})
-            
+                # bind the labels
+                self.sector_info = []
+                for i in range(len(data)):
+                    self.sector_info.append({'sector' : data_labels[i] + ' (' + data_table['Source'][i] + ')',
+                                             'tmin' : data[i].time[0]-2457000.0,
+                                             'tmax' : data[i].time[-1]-2457000.0,
+                                             'sector_max' :  1 + 5*np.std(data[i].flux/np.median(data[i].flux))})
+
 
             # Now get the segments
             self.segments = bruce.data.find_nights_from_data(self.data['TIME'], float(self.gradsplitText.text()))
 
-            # Now normalise 
+            # Now normalise
             self.normalise_data()
 
 
@@ -1043,7 +1079,7 @@ def main():
             #     self.MAD = np.mean([median_abs_deviation(self.data['PDCSAP_FLUX'][self.segments[i]]/self.data['PDC_SAP_NORM'][self.segments[i]]) for i in range(len(self.segments))])
             #     self.MFthreshold = 3*self.MAD
 
-                
+
         def normalise_data(self,):
             # Check and add the normalisation column
             if 'PDC_SAP_NORM' not in self.data.colnames : self.data.add_column(Column(np.zeros(len(self.data)), name='PDC_SAP_NORM'))
@@ -1124,8 +1160,14 @@ def main():
 
     
     # Create a plot with some random data
-    app = Window(title='TIC-{:}'.format(sys.argv[1]))
-    app.load_data(sys.argv[1], int(sys.argv[2]) if len(sys.argv)>2 else None)
+    source = sys.argv[1]
+    if os.path.isfile(source):
+        _, tic_id, sector = load_spoc_fits(source)
+    else:
+        tic_id = source
+        sector = int(sys.argv[2]) if len(sys.argv)>2 else None
+    app = Window(title='TIC-{:}'.format(tic_id))
+    app.load_data(source, sector)
     app.query_tic_params()
     app.draw_data()
 

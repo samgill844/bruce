@@ -14,3 +14,8 @@ BRUCE to be imported. To run the numerical examples, install BRUCE with its
 analysis extra first; see `installation.rst`. See `building.rst` for regeneration
 commands. Edit API explanations in `scripts/generate_api.py`, then rerun that
 script so signatures stay consistent with the Python source.
+
+The command-line guides cover `spocfit`, `tesstpf` and `predict`, using the
+supplied screenshots in `_static/cli/` and prediction output in
+`cli/predict-output.txt`. Regenerate the low-level C reference with
+`python docs/scripts/generate_c_api.py` after changing the C wrappers.

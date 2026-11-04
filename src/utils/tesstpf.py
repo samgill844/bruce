@@ -1,7 +1,7 @@
 
 def main():
 
-    from pyqtgraph.Qt import QtGui
+    from pyqtgraph.Qt import QtGui, QtWidgets
     import numpy as np, os#, pyqtgraph as pg
     from astropy.table import Table, Column
     from scipy.stats import median_abs_deviation
@@ -85,7 +85,7 @@ def main():
 
             # Create the GUI
             self.app = pg.mkQApp("TESS TPF") 
-            self.win = QtGui.QMainWindow()
+            self.win = QtWidgets.QMainWindow()
 
 
             #################################################################
@@ -202,28 +202,28 @@ def main():
 
 
             # Now plot the LC 
-            self.plot_lc_button = QtGui.QPushButton('Plot pixel lightcurve')
+            self.plot_lc_button = QtWidgets.QPushButton('Plot pixel lightcurve')
             self.image_view.scene.addWidget(self.plot_lc_button)
             self.plot_lc_button.move(0, 100)
             self.plot_lc_button.setStyleSheet('QPushButton {background-color: #007BAD98; color: white}')
             self.plot_lc_button.clicked.connect(self.plot_pixel_lightcurve)
 
             # Now add the save pixel mask
-            self.save_pixel_mask_button = QtGui.QPushButton('Save pixel mask')
+            self.save_pixel_mask_button = QtWidgets.QPushButton('Save pixel mask')
             self.image_view.scene.addWidget(self.save_pixel_mask_button)
             self.save_pixel_mask_button.move(0, 130)
             self.save_pixel_mask_button.clicked.connect(self.save_pixel_mask)
             self.save_pixel_mask_button.setStyleSheet('QPushButton {background-color: #007BAD98; color: white}')
 
             # Now add the save lightcurve button
-            self.save_lightcurve_button = QtGui.QPushButton('Save lightcurve')
+            self.save_lightcurve_button = QtWidgets.QPushButton('Save lightcurve')
             self.image_view.scene.addWidget(self.save_lightcurve_button)
             self.save_lightcurve_button.move(0, 160)
             self.save_lightcurve_button.clicked.connect(self.save_lightcurve)
             self.save_lightcurve_button.setStyleSheet('QPushButton {background-color: #007BAD98; color: white}')
 
             # Now add the spocfit  button
-            self.fit_lightcurve_button = QtGui.QPushButton('Fit the lightcurve')
+            self.fit_lightcurve_button = QtWidgets.QPushButton('Fit the lightcurve')
             self.image_view.scene.addWidget(self.fit_lightcurve_button)
             self.fit_lightcurve_button.move(0, 190)
             self.fit_lightcurve_button.clicked.connect(self.fit_lightcurve)
