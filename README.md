@@ -1,6 +1,6 @@
 # BRUCE
 
-BRUCE is a Python and C toolkit for modelling exoplanet transits and eclipsing binaries, analysing TESS and ground-based photometry, resolving ambiguous orbital periods, and producing astronomical plots and animations. NumPy C extensions and optional OpenMP parallelism support the numerical calculations.
+BRUCE is a Python and C toolkit for modelling exoplanet transits and eclipsing binaries, analysing TESS and ground-based photometry, resolving ambiguous orbital periods, and producing astronomical plots and animations. NumPy C extensions and optional OpenMP parallelism support the numerical calculations. BRUCE is named after the author’s dog, Bruce; it is not an acronym.
 
 <img src="images/bruce.png" width="240" alt="Bruce the dog">
 
