@@ -47,7 +47,7 @@ ARGS = {
  'mags_err': 'One-sigma magnitude uncertainties.', 'epoch': 'Reference epoch in the same units as times.',
  'phase_offset': 'Phase shift defining the wrap interval [-phase_offset, 1-phase_offset).',
  'unique_entries': 'If True, retain the last row per planet name from the cached archive table.',
- 'user': 'SSH username for the Warwick NGTS host; requires authorised institutional access.',
+ 'user': 'Optional username passed to the local institutional implementation; None uses its local default.',
  'id': 'Object identifier passed to SIMBAD.', 'tic_id': 'TESS Input Catalog identifier; None returns None where supported.',
  'data_release': 'Gaia release number used to select the Gaia source table.',
  'val': 'Scalar parameter value.', 'low': 'Inclusive lower bound.', 'high': 'Inclusive upper bound.',
@@ -116,10 +116,10 @@ INFO = {
  'download_NASA_exoplanet_archive': ('Download the NASA ps table into ~/.cache/bruce/confirmed_planets.csv; network access required.', 'None; writes the cache file.'),
  'load_NASA_exoplanet_archive': ('Read the NASA ps cache, downloading it if absent.', 'Astropy Table; unique_entries keeps one row per pl_name.'),
  'query_simbad': ('Query SIMBAD object identifiers; network access required.', 'Astroquery SIMBAD result table, or None if no match.'),
- 'download_tois_ctois': ('Legacy institutional helper: download TOI/CTOI tables through SSH to the Warwick NGTS database.', 'None; writes ~/.cache/bruce2 tables. Requires an existing cache directory and authorised SSH/database access.'),
+ 'download_tois_ctois': ('Optional local-only institutional TOI/CTOI downloader; implementation is not distributed.', 'Delegated to the local implementation; raises RuntimeError when it is not configured.'),
  'load_toi_table': ('Read the previously downloaded ~/.cache/bruce2/tois.dat file.', 'Astropy Table; no automatic download.'),
  'load_ctoi_table': ('Read the previously downloaded ~/.cache/bruce2/ctois.dat file.', 'Astropy Table; no automatic download.'),
- 'load_tic8_info_for_target': ('Legacy institutional TIC query over SSH; requires ~/.cache/bruce2 and authorised NGTS access.', 'Astropy Table, or None when tic_id is None.'),
+ 'load_tic8_info_for_target': ('Optional local-only institutional TIC query; implementation is not distributed.', 'Local implementation result, or None when tic_id is None; raises RuntimeError when unconfigured.'),
  'load_gaia_table': ('Query Gaia within 30 arcsec of an institutionally retrieved TIC position.', 'Tuple (TIC table, first Gaia result row); this does not identify the closest or correct counterpart automatically.'),
  'prior_uniform': ('Evaluate a bounded uniform log prior.', '0 within inclusive bounds; -inf outside.'),
  'prior_normal': ('Evaluate a normal log prior without the additive Gaussian constant.', 'Scalar log prior: -0.5*((val-reference)/reference_err)**2 - log(reference_err).'),
@@ -201,7 +201,8 @@ def main():
         if key == 'data':
             lines += ['Processing functions below are exported by ``bruce.data`` unless a',
                       'submodule path is shown. Archive helpers require network access; the',
-                      'legacy NGTS database helpers additionally require Warwick credentials.',
+                      'institutional helpers additionally require a local implementation configured',
+                      'with BRUCE_LOCAL_ARCHIVE; it is not included in public distributions.',
                       '``bruce.data.load_NASA_exoplanet_archive(unique_entries=False)`` is a lazy',
                       'alias for the fully documented submodule function below.', '']
         if key == 'sampler':

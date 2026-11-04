@@ -32,24 +32,14 @@ def load_NASA_exoplanet_archive(unique_entries=False):
 
 
 
-def download_tois_ctois(user = 'u1870241'):
-    cache_dir = os.path.expanduser("~") + '/.cache/bruce2'
-    toi_cmd_file = '{:}/toi_cmd.sh'.format(cache_dir)
-    if not os.path.isfile(toi_cmd_file):
-        with open(toi_cmd_file, 'w+') as f : f.write("mysql -h ngtsdb -u pipe -e 'select * from tess.tois;'")
-    ctoi_cmd_file = '{:}/ctoi_cmd.sh'.format(cache_dir)
-    if not os.path.isfile(ctoi_cmd_file):
-        with open(ctoi_cmd_file, 'w+') as f : f.write("mysql -h ngtsdb -u pipe -e 'select * from tess.ctois;'")
-    
-    print('Downloading TOIs... ', end='')
-    toi_file = '{:}/tois.dat'.format(cache_dir)
-    os.system('ssh {:}@ngtshead.warwick.ac.uk < {:} > {:}'.format(user, toi_cmd_file, toi_file))
-    ctoi_file = '{:}/ctois.dat'.format(cache_dir)
-    os.system('ssh {:}@ngtshead.warwick.ac.uk < {:} > {:}'.format(user, ctoi_cmd_file, ctoi_file))
+def download_tois_ctois(user=None):
+    """Run the optional local-only TOI/CTOI downloader.
 
-    for file in [toi_file, ctoi_file]:
-        lines = open(file, 'r').readlines()[2:]
-        with open(file, 'w+') as f : f.writelines(lines)
+    The institutional implementation is not distributed with BRUCE.
+    """
+    from ._local_archive_loader import load_local_archive
+    helper = load_local_archive().download_tois_ctois
+    return helper() if user is None else helper(user=user)
 
 def load_toi_table():
     cache_dir = os.path.expanduser("~") + '/.cache/bruce2'
@@ -61,19 +51,13 @@ def load_ctoi_table():
     ctoi_file = '{:}/ctois.dat'.format(cache_dir)
     return Table.read(ctoi_file, format='ascii')
 
-def load_tic8_info_for_target(tic_id=None, user = 'u1870241'):
-    if tic_id is None : return 
-    cache_dir = os.path.expanduser("~") + '/.cache/bruce2'
-    tic8_object_cmd = '{:}/tic8_object_cmd.sh'.format(cache_dir)
-
-    with open(tic8_object_cmd, 'w+') as f : f.write("mysql -h ngtsdb -u pipe -e 'select * from catalogues.tic8 where tic_id=%s;'" % tic_id)
-    output_file = '{:}/tic8_object.dat'.format(cache_dir)
-    os.system('ssh {:}@ngtshead.warwick.ac.uk < {:} > {:}'.format(user, tic8_object_cmd, output_file))
-
-    lines = open(output_file, 'r').readlines()[2:]
-    with open(output_file, 'w+') as f : f.writelines(lines)
-
-    return Table.read(output_file, format='ascii')
+def load_tic8_info_for_target(tic_id=None, user=None):
+    """Query TIC information through the optional local-only implementation."""
+    if tic_id is None:
+        return None
+    from ._local_archive_loader import load_local_archive
+    helper = load_local_archive().load_tic8_info_for_target
+    return helper(tic_id=tic_id) if user is None else helper(tic_id=tic_id, user=user)
 
 
 def load_gaia_table(tic_id=None, data_release=3):

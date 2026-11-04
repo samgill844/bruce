@@ -5,7 +5,8 @@ Data utilities
 
 Processing functions below are exported by ``bruce.data`` unless a
 submodule path is shown. Archive helpers require network access; the
-legacy NGTS database helpers additionally require Warwick credentials.
+institutional helpers additionally require a local implementation configured
+with BRUCE_LOCAL_ARCHIVE; it is not included in public distributions.
 ``bruce.data.load_NASA_exoplanet_archive(unique_entries=False)`` is a lazy
 alias for the fully documented submodule function below.
 
@@ -157,12 +158,12 @@ bruce.data.nasa_archive
    :param unique_entries: If True, retain the last row per planet name from the cached archive table.
    :returns: Astropy Table; unique_entries keeps one row per pl_name.
 
-.. py:function:: bruce.data.nasa_archive.download_tois_ctois(user='u1870241')
+.. py:function:: bruce.data.nasa_archive.download_tois_ctois(user=None)
 
-   Legacy institutional helper: download TOI/CTOI tables through SSH to the Warwick NGTS database.
+   Optional local-only institutional TOI/CTOI downloader; implementation is not distributed.
 
-   :param user: SSH username for the Warwick NGTS host; requires authorised institutional access.
-   :returns: None; writes ~/.cache/bruce2 tables. Requires an existing cache directory and authorised SSH/database access.
+   :param user: Optional username passed to the local institutional implementation; None uses its local default.
+   :returns: Delegated to the local implementation; raises RuntimeError when it is not configured.
 
 .. py:function:: bruce.data.nasa_archive.load_toi_table()
 
@@ -176,13 +177,13 @@ bruce.data.nasa_archive
 
    :returns: Astropy Table; no automatic download.
 
-.. py:function:: bruce.data.nasa_archive.load_tic8_info_for_target(tic_id=None, user='u1870241')
+.. py:function:: bruce.data.nasa_archive.load_tic8_info_for_target(tic_id=None, user=None)
 
-   Legacy institutional TIC query over SSH; requires ~/.cache/bruce2 and authorised NGTS access.
+   Optional local-only institutional TIC query; implementation is not distributed.
 
    :param tic_id: TESS Input Catalog identifier; None returns None where supported.
-   :param user: SSH username for the Warwick NGTS host; requires authorised institutional access.
-   :returns: Astropy Table, or None when tic_id is None.
+   :param user: Optional username passed to the local institutional implementation; None uses its local default.
+   :returns: Local implementation result, or None when tic_id is None; raises RuntimeError when unconfigured.
 
 .. py:function:: bruce.data.nasa_archive.load_gaia_table(tic_id=None, data_release=3)
 

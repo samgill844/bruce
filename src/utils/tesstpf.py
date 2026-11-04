@@ -700,7 +700,7 @@ def main():
         if not args.nogui: os.system('spocfit {:}'.format(' '.join(data_files)))
         else:
             from astropy.table import Table
-            import bruce2
+            import bruce
             class data:
                 def __init__(self,filenames):
                     self.SG_window_length = 303
@@ -725,7 +725,7 @@ def main():
                     self.data = self.data[~np.isinf(self.data['TIME']) & ~np.isnan(self.data['TIME']) & ~np.isinf(self.data['SAP_FLUX']) & ~np.isnan(self.data['SAP_FLUX']) & (self.data['SAP_FLUX'] > 1) & (self.data['PDCSAP_FLUX'] > 1)]
 
                     # Now get the segments
-                    self.segments = bruce2.data.find_nights_from_data(self.data['TIME'], float(self.gradsplit))
+                    self.segments = bruce.data.find_nights_from_data(self.data['TIME'], float(self.gradsplit))
 
                     # now normalise
                     if 'PDC_SAP_NORM' not in self.data.colnames:
@@ -750,8 +750,8 @@ def main():
                         if window_scale < 10 : window_scale = 10
                         if not window_scale&1 : window_scale +=1
 
-                        try : self.data['PDC_SAP_NORM'][self.segments[i]] = bruce2.data.flatten_data_with_function(self.data['TIME'][self.segments[i]], self.data['PDCSAP_FLUX'][self.segments[i]], SG_window_length=window_scale, SG_iter=int(self.SG_iter_text.text()))
-                        except : self.data['PDC_SAP_NORM'][self.segments[i]] = bruce2.data.flatten_data_with_function(self.data['TIME'][self.segments[i]], self.data['PDCSAP_FLUX'][self.segments[i]], method='poly1d')
+                        try : self.data['PDC_SAP_NORM'][self.segments[i]] = bruce.data.flatten_data_with_function(self.data['TIME'][self.segments[i]], self.data['PDCSAP_FLUX'][self.segments[i]], SG_window_length=window_scale, SG_iter=int(self.SG_iter_text.text()))
+                        except : self.data['PDC_SAP_NORM'][self.segments[i]] = bruce.data.flatten_data_with_function(self.data['TIME'][self.segments[i]], self.data['PDCSAP_FLUX'][self.segments[i]], method='poly1d')
                     # Now re-calculate MAD
                     self.MAD = np.mean([median_abs_deviation(self.data['PDCSAP_FLUX'][self.segments[i]]/self.data['PDC_SAP_NORM'][self.segments[i]]) for i in range(len(self.segments))])
                     self.MFthreshold = 3*self.MAD

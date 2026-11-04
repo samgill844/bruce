@@ -42,3 +42,6 @@ mastDownload/
 sync.sh
 # Sphinx HTML and doctrees
 /docs/_build/
+
+# Local-only institutional integrations; never distribute these files
+/.bruce-local/

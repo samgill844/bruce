@@ -5,3 +5,4 @@ recursive-include tests/regression *.py
 include CONTRIBUTING.md RELEASING.md
 recursive-include docs *.rst *.md *.py *.txt *.css *.png *.gif
 prune docs/_build
+prune .bruce-local
